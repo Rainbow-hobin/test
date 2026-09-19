@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240">
+<rect width="240" height="240" rx="16" fill="#FFEBEE"/>
+<circle cx="120" cy="112" r="56" fill="#FFFFFF" opacity="0.85"/>
+<text x="120" y="138" font-size="68" text-anchor="middle" dominant-baseline="central">🥩</text>
+<text x="120" y="216" font-size="17" text-anchor="middle" fill="#8D6E63" font-family="Microsoft YaHei, sans-serif">鱼香肉丝</text>
+</svg>
