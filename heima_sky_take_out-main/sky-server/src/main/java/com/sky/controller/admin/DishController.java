@@ -12,9 +12,11 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/admin/dish")
@@ -25,6 +27,8 @@ public class DishController {
     private DishService dishService;
     @Autowired
     private DishMapper dishMapper;
+    @Autowired
+    private RedisTemplate redisTemplate;
 
     @PostMapping
     @ApiOperation("新增菜品")
@@ -55,7 +59,7 @@ public class DishController {
         // 1. 启用 0. 停用
         log.info("启用或停用菜品：{}", id);
         dishService.startOrStop(status, id);
-        com.sky.controller.user.DishController.clearCache();
+        clearRedis("dish_*");
         return Result.success();
     }
 
@@ -64,8 +68,11 @@ public class DishController {
     public Result delete(@RequestParam Long[] ids) {//@RequestParam
         dishService.deleteBatch(ids);
 
-        // 清理本地菜品缓存
-        com.sky.controller.user.DishController.clearCache();
+        // 将所有菜品缓存数据清理，所有以dish_的key
+        Set keys = redisTemplate.keys("dish_*");
+        if (keys != null) {
+            redisTemplate.delete(keys);
+        }
 
         return Result.success();
     }
@@ -82,8 +89,9 @@ public class DishController {
     public Result update(@RequestBody DishDTO dishDTO) {
         log.info("更新菜品信息：{}", dishDTO);
 
-        // 清理本地菜品缓存
-        com.sky.controller.user.DishController.clearCache();
+        // 更新缓存数据
+        String key = "dish_" + dishDTO.getCategoryId();
+        redisTemplate.delete(key);
 
         dishService.updateWithFlavor(dishDTO);
         return Result.success();
@@ -101,4 +109,8 @@ public class DishController {
         return Result.success(dishList);
     }
 
+    private void clearRedis(String keys) {
+        Set<String> cacheKeys = redisTemplate.keys(keys);
+        redisTemplate.delete(cacheKeys);
+    }
 }
