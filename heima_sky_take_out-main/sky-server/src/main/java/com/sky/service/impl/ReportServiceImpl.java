@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.apache.commons.lang.StringUtils;
 import org.apache.poi.xssf.usermodel.XSSFRow;
@@ -51,6 +52,7 @@ public class ReportServiceImpl implements ReportService {
      * @return
      */
     @Override
+    @Cacheable(cacheNames = "reportCache", key = "'turnover:' + #begin + ':' + #end")
     public TurnoverReportVO getTurnoverReport(LocalDate begin, LocalDate end) {
 
         List<LocalDate> dates = new ArrayList<>();
@@ -83,6 +85,7 @@ public class ReportServiceImpl implements ReportService {
      * @return
      */
     @Override
+    @Cacheable(cacheNames = "reportCache", key = "'user:' + #begin + ':' + #end")
     public UserReportVO getUserStatistics(LocalDate begin, LocalDate end) {
         List<LocalDate> dateList = new ArrayList<>();
         dateList.add(begin);
@@ -120,6 +123,7 @@ public class ReportServiceImpl implements ReportService {
      * @param end
      * @return
      */
+    @Cacheable(cacheNames = "reportCache", key = "'order:' + #begin + ':' + #end")
     public OrderReportVO getOrderStatistics(LocalDate begin, LocalDate end) {
         List<LocalDate> dateList = new ArrayList<>();
         dateList.add(begin);
@@ -174,6 +178,7 @@ public class ReportServiceImpl implements ReportService {
      * @param end
      * @return
      */
+    @Cacheable(cacheNames = "reportCache", key = "'top10:' + #begin + ':' + #end")
     public SalesTop10ReportVO getSalesTop10(LocalDate begin, LocalDate end) {
         LocalDateTime beginTime = LocalDateTime.of(begin, LocalTime.MIN);
         LocalDateTime endTime = LocalDateTime.of(end, LocalTime.MAX);

@@ -29,4 +29,11 @@ public interface ShoppingCartService {
      * @param shoppingCartDTO
      */
     void subShoppingCart(ShoppingCartDTO shoppingCartDTO);
+
+    /**
+     * 再来一单：将历史订单明细批量加入当前用户的购物车，
+     * 购物车中已存在的同款商品数量累加
+     * @param shoppingCartList 由订单明细转换来的购物车对象
+     */
+    void addFromOrderDetails(List<ShoppingCart> shoppingCartList);
 }

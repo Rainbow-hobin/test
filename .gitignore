@@ -1,0 +1,12 @@
+# 本地编辑器配置
+.vscode/
+
+# Redis 持久化快照
+dump.rdb
+*.rdb
+
+# nginx 运行日志与进程号
+heima_sky_take_out-main/Web/nginx-1.20.2/logs/
+
+# Maven 构建产物
+target/

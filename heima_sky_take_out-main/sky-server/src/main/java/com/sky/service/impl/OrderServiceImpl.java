@@ -2,15 +2,18 @@ package com.sky.service.impl;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -35,6 +38,7 @@ import com.sky.exception.AddressBookBusinessException;
 import com.sky.exception.OrderBusinessException;
 import com.sky.exception.ShoppingCartBusinessException;
 import com.sky.service.OrderService;
+import com.sky.service.ShoppingCartService;
 import com.sky.vo.OrderPaymentVO;
 import com.sky.vo.OrderStatisticsVO;
 import com.sky.vo.OrderSubmitVO;
@@ -46,13 +50,20 @@ import lombok.extern.slf4j.Slf4j;
 import com.sky.mapper.AddressBookMapper;
 import com.sky.mapper.OrderDetailMapper;
 import com.sky.mapper.OrderMapper;
-import com.sky.mapper.ShoppingCartMapper;
 // import com.sky.mapper.UserMapper;
 import com.sky.result.PageResult;
 
 @Service
 @Slf4j
 public class OrderServiceImpl implements OrderService {
+
+    // 订单号自增序列在redis中的key前缀，按天生成：order:seq:yyyyMMdd
+    private static final String ORDER_SEQ_PREFIX = "order:seq:";
+    private static final DateTimeFormatter ORDER_NO_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+
+    // 下单防重锁前缀与锁定时长
+    private static final String SUBMIT_LOCK_PREFIX = "order:submit:lock:";
+    private static final long SUBMIT_LOCK_SECONDS = 5L;
 
     @Autowired
     private OrderMapper orderMapper;
@@ -64,7 +75,10 @@ public class OrderServiceImpl implements OrderService {
     private AddressBookMapper addressBookMapper;
 
     @Autowired
-    private ShoppingCartMapper shoppingCartMapper;
+    private ShoppingCartService shoppingCartService;
+
+    @Autowired
+    private RedisTemplate<String, Object> redisTemplate;
 
     // @Autowired
     // private UserMapper userMapper;
@@ -81,28 +95,38 @@ public class OrderServiceImpl implements OrderService {
     @Override
     @Transactional
     public OrderSubmitVO submitOrder(OrdersSubmitDTO ordersSubmitDTO) {
+        Long userId = BaseContext.getCurrentId();
+
         // 业务异常处理，地址为空、购物车为空
         AddressBook addressBook = addressBookMapper.getById(ordersSubmitDTO.getAddressBookId());
         if (addressBook == null) {
             // 抛出异常
             throw new AddressBookBusinessException(MessageConstant.ADDRESS_BOOK_IS_NULL);
         }
-        Long userId = BaseContext.getCurrentId();
-        ShoppingCart shoppingCart = new ShoppingCart();
-        shoppingCart.setUserId(userId);
-        List<ShoppingCart> cartList = shoppingCartMapper.list(shoppingCart);
+        // 购物车数据在redis中维护
+        List<ShoppingCart> cartList = shoppingCartService.showShoppingCart();
         if (cartList == null || cartList.isEmpty()) {
             // 抛出异常
             throw new ShoppingCartBusinessException(MessageConstant.SHOPPING_CART_IS_NULL);
         }
 
+        // 业务参数均合法后再加防重锁：基于用户id加短时锁，拦截快速点击/并发提交，
+        // 同时避免无效请求（地址/购物车不合法）也把用户锁住
+        Boolean locked = redisTemplate.opsForValue().setIfAbsent(
+                SUBMIT_LOCK_PREFIX + userId, "1", SUBMIT_LOCK_SECONDS, TimeUnit.SECONDS);
+        if (!Boolean.TRUE.equals(locked)) {
+            throw new OrderBusinessException(MessageConstant.REPEAT_SUBMIT);
+        }
+
         // 订单表插入一条数据
         Orders orders = new Orders();
         BeanUtils.copyProperties(ordersSubmitDTO, orders);
-        orders.setOrderTime(LocalDateTime.now());
+        LocalDateTime orderTime = LocalDateTime.now();
+        orders.setOrderTime(orderTime);
         orders.setPayStatus(Orders.UN_PAID);
         orders.setStatus(Orders.PENDING_PAYMENT);
-        orders.setNumber(String.valueOf(System.currentTimeMillis()));
+        // 订单号：时间戳+redis当日自增序列，避免高并发下重复
+        orders.setNumber(generateOrderNumber(orderTime));
         orders.setAddress(addressBook.getDetail());
         orders.setPhone(addressBook.getPhone());
         orders.setConsignee(addressBook.getConsignee());
@@ -121,8 +145,8 @@ public class OrderServiceImpl implements OrderService {
         });
         orderDetailMapper.insertBatch(orderDetailList);
 
-        // 清空购物车
-        shoppingCartMapper.deleteByUserId(userId);
+        // 清空redis中的购物车
+        shoppingCartService.cleanShoppingCart();
 
         // 返回 VO
         OrderSubmitVO orderSubmitVO = OrderSubmitVO.builder()
@@ -133,6 +157,20 @@ public class OrderServiceImpl implements OrderService {
                 .build();
 
         return orderSubmitVO;
+    }
+
+    /**
+     * 生成订单号：yyyyMMddHHmmss + 6位当日自增序列（redis INCR，原子操作）
+     * 序列key在每天第一次生成时设置2天过期，自动清理
+     */
+    private String generateOrderNumber(LocalDateTime orderTime) {
+        String datePart = orderTime.format(ORDER_NO_DATE_FORMAT);
+        String seqKey = ORDER_SEQ_PREFIX + datePart.substring(0, 8);
+        Long seq = redisTemplate.opsForValue().increment(seqKey);
+        if (seq != null && seq == 1L) {
+            redisTemplate.expire(seqKey, 2, TimeUnit.DAYS);
+        }
+        return datePart + String.format("%06d", seq);
     }
 
     /**
@@ -301,8 +339,8 @@ public class OrderServiceImpl implements OrderService {
             return shoppingCart;
         }).collect(Collectors.toList());
 
-        // 将购物车对象批量添加到数据库
-        shoppingCartMapper.insertBatch(shoppingCartList);
+        // 将购物车对象批量添加到redis购物车，同款商品数量累加
+        shoppingCartService.addFromOrderDetails(shoppingCartList);
     }
 
     /**
