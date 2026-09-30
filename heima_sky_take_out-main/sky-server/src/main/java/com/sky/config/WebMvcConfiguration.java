@@ -1,7 +1,6 @@
 package com.sky.config;
 
 import com.sky.interceptor.JwtTokenAdminInterceptor;
-import com.sky.interceptor.JwtTokenMerchantInterceptor;
 import com.sky.interceptor.JwtTokenUserInterceptor;
 import com.sky.json.JacksonObjectMapper;
 import lombok.extern.slf4j.Slf4j;
@@ -38,9 +37,6 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
     @Autowired
     private JwtTokenUserInterceptor jwtTokenUserInterceptor;
 
-    @Autowired
-    private JwtTokenMerchantInterceptor jwtTokenMerchantInterceptor;
-
     /**
      * 跨域配置：网页版前端直接访问后端接口
      *
@@ -74,9 +70,6 @@ public class WebMvcConfiguration extends WebMvcConfigurationSupport {
                 .excludePathPatterns("/user/user/login")
                 .excludePathPatterns("/user/user/register")
                 .excludePathPatterns("/user/shop/status");
-
-        registry.addInterceptor(jwtTokenMerchantInterceptor)
-                .addPathPatterns("/merchant/**");
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.sky.controller.admin;
 
+import com.sky.cache.CacheClient;
 import com.sky.dto.DishDTO;
 import com.sky.dto.DishPageQueryDTO;
 import com.sky.entity.Dish;
@@ -12,11 +13,9 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/admin/dish")
@@ -28,13 +27,17 @@ public class DishController {
     @Autowired
     private DishMapper dishMapper;
     @Autowired
-    private RedisTemplate redisTemplate;
+    private CacheClient cacheClient;
 
     @PostMapping
     @ApiOperation("新增菜品")
     public Result save(@RequestBody DishDTO dishDTO) {
         log.info("新增菜品：{}", dishDTO);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删，防止读到旧数据
+        String cacheKey = "dish_" + dishDTO.getCategoryId();
+        cacheClient.delete(cacheKey);
         dishService.saveWithFlavor(dishDTO);
+        cacheClient.deleteDelayed(cacheKey);
         return Result.success();
     }
 
@@ -58,21 +61,20 @@ public class DishController {
     public Result<String> startOrStop(@PathVariable Integer status, Long id) {
         // 1. 启用 0. 停用
         log.info("启用或停用菜品：{}", id);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删
+        cacheClient.deleteByPattern("dish_*");
         dishService.startOrStop(status, id);
-        clearRedis("dish_*");
+        cacheClient.deleteByPatternDelayed("dish_*");
         return Result.success();
     }
 
     @DeleteMapping
     @ApiOperation("删除菜品")
     public Result delete(@RequestParam Long[] ids) {//@RequestParam
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删（SCAN 游标，避免 KEYS 阻塞 Redis）
+        cacheClient.deleteByPattern("dish_*");
         dishService.deleteBatch(ids);
-
-        // 将所有菜品缓存数据清理，所有以dish_的key
-        Set keys = redisTemplate.keys("dish_*");
-        if (keys != null) {
-            redisTemplate.delete(keys);
-        }
+        cacheClient.deleteByPatternDelayed("dish_*");
 
         return Result.success();
     }
@@ -89,11 +91,11 @@ public class DishController {
     public Result update(@RequestBody DishDTO dishDTO) {
         log.info("更新菜品信息：{}", dishDTO);
 
-        // 更新缓存数据
-        String key = "dish_" + dishDTO.getCategoryId();
-        redisTemplate.delete(key);
-
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删，防止更新间隙读回旧数据
+        String cacheKey = "dish_" + dishDTO.getCategoryId();
+        cacheClient.delete(cacheKey);
         dishService.updateWithFlavor(dishDTO);
+        cacheClient.deleteDelayed(cacheKey);
         return Result.success();
     }
 
@@ -107,10 +109,5 @@ public class DishController {
     public Result<List<Dish>> list(Long categoryId) {
         List<Dish> dishList = dishService.list(categoryId);
         return Result.success(dishList);
-    }
-
-    private void clearRedis(String keys) {
-        Set<String> cacheKeys = redisTemplate.keys(keys);
-        redisTemplate.delete(cacheKeys);
     }
 }

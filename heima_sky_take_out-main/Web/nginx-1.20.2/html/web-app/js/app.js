@@ -1,7 +1,7 @@
 /**
  * 苍穹外卖网页版 - 主应用
- * 复刻微信小程序端页面（点餐/购物车/下单/支付/历史订单/地址/我的）
- * 登录页支持选择“用户/商家”，商家登录后进入订单管理页
+ * 用户端页面（点餐/购物车/下单/支付/历史订单/地址/我的）
+ * 商家功能请使用原版 PC 后台：/admin/
  */
 (function () {
   "use strict";
@@ -22,7 +22,6 @@
   function render(html, opts) {
     opts = opts || {};
     app.innerHTML = html;
-    app.classList.toggle("has-tabbar", !!opts.tabbar);
     document.querySelector(".page-shell").style.height = opts.full ? "92vh" : "92vh";
     if (opts.title) document.title = opts.title + " · 苍穹外卖";
   }
@@ -36,30 +35,49 @@
       + "</div>";
   }
 
-  function tabbar(active) {
-    const tabs = [
-      { key: "menu", label: "点餐", ico: "🍜" },
-      { key: "history", label: "订单", ico: "📋" },
-      { key: "my", label: "我的", ico: "👤" }
-    ];
-    return '<div class="tabbar">' + tabs.map(t =>
-      '<div class="tab-item' + (active === t.key ? " active" : "") + '" onclick="App.go(\'' + t.key + '\')">'
-      + '<span class="tab-ico">' + t.ico + "</span><span>" + t.label + "</span></div>"
-    ).join("") + "</div>";
+  // 底部主导航：常驻于 #app 之外，只构建一次，切页仅切换高亮，DOM 不销毁不闪烁
+  const TAB_DEFS = [
+    { key: "menu", label: "点餐", ico: "🍜" },
+    { key: "history", label: "订单", ico: "📋" },
+    { key: "my", label: "我的", ico: "👤" }
+  ];
+  // 子页面归属哪个主 tab（用于非主 tab 页保持对应高亮）
+  const TAB_HIGHLIGHT = {
+    menu: "menu", order: "menu",
+    history: "history", pay: "history", success: "history",
+    my: "my", address: "my", addressForm: "my"
+  };
+  let tabbarInited = false;
+  function syncTabbar(routeName) {
+    const bar = document.getElementById("global-tabbar");
+    const shell = document.querySelector(".page-shell");
+    if (!bar || !shell) return;
+    if (routeName === "login" || routeName === "register") {
+      bar.classList.add("hidden");
+      shell.classList.remove("has-tabbar");
+      return;
+    }
+    bar.classList.remove("hidden");
+    shell.classList.add("has-tabbar");
+    if (!tabbarInited) {
+      bar.innerHTML = TAB_DEFS.map(t =>
+        '<div class="tab-item" data-key="' + t.key + '" onclick="App.go(\'' + t.key + '\')">'
+        + '<span class="tab-ico">' + t.ico + "</span><span>" + t.label + "</span></div>"
+      ).join("");
+      tabbarInited = true;
+    }
+    const active = TAB_HIGHLIGHT[routeName];
+    bar.querySelectorAll(".tab-item").forEach(el =>
+      el.classList.toggle("active", el.dataset.key === active));
   }
 
   function emptyTip(ico, text) {
     return '<div class="empty-tip"><div class="em-ico">' + ico + '</div><div>' + Util.esc(text) + "</div></div>";
   }
 
-  function guard(role) {
+  function guard() {
     const user = Api.getUser();
     if (!user) { location.hash = "#/login"; return false; }
-    if (role && user.role !== role) {
-      Util.toast(role === 2 ? "该页面仅商家可访问" : "该页面仅用户可访问");
-      location.hash = user.role === 2 ? "#/merchant" : "#/menu";
-      return false;
-    }
     return true;
   }
 
@@ -74,8 +92,7 @@
     address: pageAddress,
     addressForm: pageAddressForm,
     history: pageHistory,
-    my: pageMy,
-    merchant: pageMerchant
+    my: pageMy
   };
 
   function parseHash() {
@@ -90,6 +107,7 @@
     state.route = name;
     state.params = params;
     fn(params);
+    syncTabbar(name);
     app.scrollTop = 0;
   }
 
@@ -107,7 +125,6 @@
 
   function authBody(mode) {
     const isLogin = mode === "login";
-    const role = state.loginRole || 1;
     const fields = isLogin
       ? '<div class="field"><label>用户名</label><input id="a-username" placeholder="请输入用户名" autocomplete="username"></div>'
         + '<div class="field"><label>密码</label><input id="a-password" type="password" placeholder="请输入密码" autocomplete="current-password"></div>'
@@ -116,11 +133,7 @@
         + '<div class="field"><label>昵称</label><input id="a-name" placeholder="你的称呼（可留空）"></div>'
         + '<div class="field"><label>手机号</label><input id="a-phone" placeholder="手机号（可留空）"></div>';
 
-    return '<div class="role-switch">'
-      + '<div class="role-btn' + (role === 1 ? " active" : "") + '" onclick="App.setLoginRole(1)">👤 用户</div>'
-      + '<div class="role-btn' + (role === 2 ? " active" : "") + '" onclick="App.setLoginRole(2)">🏪 商家</div>'
-      + "</div>"
-      + '<div class="auth-form">' + fields
+    return '<div class="auth-form">' + fields
       + '<button class="btn-primary" onclick="App.submitAuth(\'' + mode + '\')">' + (isLogin ? "登 录" : "注 册") + "</button>"
       + '</div><div class="auth-switch">'
       + (isLogin ? "还没有账号？<a href='#/register'>立即注册</a>" : "已有账号？<a href='#/login'>直接登录</a>")
@@ -136,14 +149,13 @@
   function pageRegister() {
     const brand = '<div class="auth-brand"><img src="images/restaurant/logo.png" alt="logo"><h1>苍穹外卖</h1><p>注册新账号</p></div>';
     render('<div class="auth-page">' + authLayout(brand) + "</div>");
-    state.loginRole = 1;
     document.getElementById("auth-body").innerHTML = authBody("register");
   }
 
   // ==================== 点餐首页 ====================
   async function pageMenu() {
-    if (!guard(1)) return;
-    render('<div id="menu-root"></div>', { tabbar: true, title: "苍穹外卖" });
+    if (!guard()) return;
+    render('<div id="menu-root"></div>', { title: "苍穹外卖" });
     const root = document.getElementById("menu-root");
     root.innerHTML = '<div class="empty-tip">加载中…</div>';
     try {
@@ -204,8 +216,7 @@
       + '<div class="cart-pop hidden" id="cart-pop"></div>'
       + '<div class="spec-pop hidden" id="spec-pop"></div>'
       + cartBarHtml(total, count)
-      + '<div id="cart-tpl" class="hidden"></div>'
-      + tabbar("menu");
+      + '<div id="cart-tpl" class="hidden"></div>';
   }
 
   function withCartNumber(dish) {
@@ -231,29 +242,31 @@
   }
 
   function dishStepperHtml(dish, isSetmeal) {
+    const closed = state.shopStatus !== 1;
     if (isSetmeal) {
       return dish._number > 0
-        ? '<div class="stepper"><button class="step-sub" data-act="sub">−</button><span class="step-num">' + dish._number + "</span><button class=\"step-add\" data-act=\"add\">+</button></div>"
-        : '<button class="spec-btn" data-act="spec">选择规格</button>';
+        ? '<div class="stepper"><button class="step-sub" data-act="sub">−</button><span class="step-num">' + dish._number + '</span><button class="step-add' + (closed ? " disabled" : "") + '" data-act="add">+</button></div>'
+        : '<button class="spec-btn' + (closed ? " disabled" : "") + '" data-act="spec">+</button>';
     }
     if (dish.flavors && dish.flavors.length > 0) {
       return dish._number > 0
-        ? '<div class="stepper"><button class="step-sub" data-act="sub">−</button><span class="step-num">' + dish._number + "</span><button class=\"step-add\" data-act=\"add\">+</button></div>"
-        : '<button class="spec-btn" data-act="spec">选择规格</button>';
+        ? '<div class="stepper"><button class="step-sub" data-act="sub">−</button><span class="step-num">' + dish._number + '</span><button class="step-add' + (closed ? " disabled" : "") + '" data-act="add">+</button></div>'
+        : '<button class="spec-btn' + (closed ? " disabled" : "") + '" data-act="spec">+</button>';
     }
     return '<div class="stepper">'
       + (dish._number > 0 ? '<button class="step-sub" data-act="sub">−</button>' : "")
       + (dish._number > 0 ? '<span class="step-num">' + dish._number + "</span>" : "")
-      + '<button class="step-add" data-act="add">+</button></div>';
+      + '<button class="step-add' + (closed ? " disabled" : "") + '" data-act="add">+</button></div>';
   }
 
   function cartBarHtml(total, count) {
+    const closed = state.shopStatus !== 1;
     return '<div class="cart-bar">'
       + '<div class="cart-left" id="cart-open">'
       + '<span class="cart-ico">🛒</span>'
       + (count > 0 ? '<span class="cart-num">' + count + "</span>" : "")
       + '<span class="cart-total"><small>￥</small>' + Util.money(total) + "</span>"
-      + '</div><button class="cart-go' + (count === 0 ? " disabled" : "") + '" id="cart-go">去结算</button></div>';
+      + '</div><button class="cart-go' + (count === 0 || closed ? " disabled" : "") + '" id="cart-go">' + (closed ? "已打烊" : "去结算") + "</button></div>";
   }
 
   function bindMenuEvents() {
@@ -277,6 +290,7 @@
       const dish = state.dishMap[dishEl.dataset.key];
       if (!dish) return;
       const act = btn.dataset.act;
+      if ((act === "add" || act === "spec") && state.shopStatus !== 1) { Util.toast("店铺已打烊，暂不接受点餐"); return; }
       if (act === "add") await cartAdd(dish, null, true);
       else if (act === "sub") await cartSub(dish, null);
       else if (act === "spec") openSpecPop(dish);
@@ -291,12 +305,14 @@
 
     // 去结算
     document.getElementById("cart-go").addEventListener("click", () => {
+      if (state.shopStatus !== 1) { Util.toast("店铺已打烊，暂不接受订单"); return; }
       if (!(state.cart || []).length) { Util.toast("请先添加商品"); return; }
       go("order");
     });
   }
 
   async function cartAdd(dish, flavor, silent) {
+    if (state.shopStatus !== 1) { Util.toast("店铺已打烊，暂不接受点餐"); return; }
     try {
       const isSetmeal = !!dish._isSetmeal;
       const payload = isSetmeal ? { setmealId: dish.id } : { dishId: dish.id };
@@ -334,12 +350,16 @@
     const count = cart.reduce((s, c) => s + c.number, 0);
     const bar = document.querySelector(".cart-bar");
     if (bar) {
+      const closed = state.shopStatus !== 1;
       bar.innerHTML = '<div class="cart-left" id="cart-open">'
         + '<span class="cart-ico">🛒</span>'
         + (count > 0 ? '<span class="cart-num">' + count + "</span>" : "")
         + '<span class="cart-total"><small>￥</small>' + Util.money(total) + "</span>"
-        + '</div><button class="cart-go' + (count === 0 ? " disabled" : "") + '" id="cart-go">去结算</button>';
-      document.getElementById("cart-go").addEventListener("click", () => count > 0 && go("order"));
+        + '</div><button class="cart-go' + (count === 0 || closed ? " disabled" : "") + '" id="cart-go">' + (closed ? "已打烊" : "去结算") + "</button>";
+      document.getElementById("cart-go").addEventListener("click", () => {
+        if (closed) { Util.toast("店铺已打烊，暂不接受订单"); return; }
+        if (count > 0) go("order");
+      });
       document.getElementById("cart-open").addEventListener("click", () => count > 0 && showCartPop());
     }
     // 菜品列表数量同步（重建当前分类列表的加号/数量）
@@ -448,7 +468,7 @@
 
   // ==================== 下单页 ====================
   async function pageOrder() {
-    if (!guard(1)) return;
+    if (!guard()) return;
     render(navbar("确认订单", { back: true }) + '<div id="order-root" class="page-pad"></div>', { title: "确认订单" });
     const root = document.getElementById("order-root");
     try {
@@ -564,7 +584,7 @@
 
   // ==================== 支付页 ====================
   async function pagePay() {
-    if (!guard(1)) return;
+    if (!guard()) return;
     const orderId = state.params.orderId;
     let order = state.currentOrder;
     if (!order && orderId) {
@@ -611,7 +631,7 @@
 
   // ==================== 支付成功 ====================
   function pageSuccess() {
-    if (!guard(1)) return;
+    if (!guard()) return;
     const p = state.params;
     render('<div class="success-page">'
       + '<div class="su-ico">✓</div>'
@@ -626,16 +646,18 @@
 
   // ==================== 历史订单 ====================
   async function pageHistory() {
-    if (!guard(1)) return;
-    render(navbar("我的订单", { back: true }) + '<div id="his-status"></div><div id="his-root" class="page-pad"></div>', { title: "我的订单" });
+    if (!guard()) return;
+    render('<div class="order-top"><button class="pt-back" onclick="history.back()">‹</button><span>我的订单</span></div>'
+      + '<div id="his-status" class="order-tabs"></div><div id="his-root" class="page-pad"></div>'
+      , { title: "我的订单" });
     loadHistory(1);
   }
 
   async function loadHistory(status) {
     const tabs = [{ v: "", t: "全部" }, { v: 1, t: "待付款" }, { v: 2, t: "待接单" }, { v: 3, t: "已接单" }, { v: 4, t: "派送中" }, { v: 5, t: "已完成" }, { v: 6, t: "已取消" }];
-    document.getElementById("his-status").innerHTML = '<div class="status-tabs">' + tabs.map(t =>
+    document.getElementById("his-status").innerHTML = tabs.map(t =>
       '<span class="st-item' + (String(status) === String(t.v) ? " active" : "") + '" data-v="' + t.v + '">' + t.t + "</span>"
-    ).join("") + "</div>";
+    ).join("");
     document.querySelectorAll(".st-item").forEach(el => {
       el.addEventListener("click", () => loadHistory(el.dataset.v === "" ? "" : Number(el.dataset.v)));
     });
@@ -653,7 +675,7 @@
 
   function orderCardHtml(o) {
     const items = o.orderDetailList || [];
-    return '<div class="order-card">'
+    return '<div class="order-card oc-s' + o.status + '">'
       + '<div class="oc-head"><span>' + Util.esc(o.number || "") + "</span><span class=\"oc-status\">" + Util.orderStatusText(o.status) + "</span></div>"
       + '<div class="oc-goods">' + (items.length ? items.map(it =>
         '<div class="oc-row"><img src="' + Util.img(it.image) + '"><span class="oc-name">' + Util.esc(it.name)
@@ -715,7 +737,7 @@
 
   // ==================== 地址簿 ====================
   async function pageAddress() {
-    if (!guard(1)) return;
+    if (!guard()) return;
     render(navbar("收货地址", { back: true, right: "＋ 新增", rightAction: "onclick=\"location.hash='#/addressForm'\"" })
       + '<div id="addr-root" class="page-pad"></div>', { title: "收货地址" });
     const root = document.getElementById("addr-root");
@@ -750,7 +772,7 @@
   }
 
   async function pageAddressForm() {
-    if (!guard(1)) return;
+    if (!guard()) return;
     const id = state.params.id;
     let addr = { consignee: "", phone: "", provinceName: "北京市", cityName: "北京市", districtName: "朝阳区", detail: "", label: "家", isDefault: 0 };
     if (id) {
@@ -818,135 +840,50 @@
   }
 
   // ==================== 我的 ====================
-  function pageMy() {
-    if (!guard(1)) return;
+  async function pageMy() {
+    if (!guard()) return;
     const user = Api.getUser();
-    render('<div class="my-header"><div class="my-avatar">' + (user.name ? Util.esc(user.name[0]) : "👤") + "</div>"
+    // 统计数据（任一失败不影响页面渲染）
+    let orderTotal = 0, addrCount = 0, cartCount = 0;
+    try { orderTotal = (await Api.orderHistory(1, 1, "")).total || 0; } catch (e) {}
+    try { addrCount = (await Api.addressList() || []).length; } catch (e) {}
+    try { cartCount = (await Api.cartList() || []).length; } catch (e) {}
+
+    render('<div class="my-header">'
+      + '<div class="mh-row"><div class="my-avatar">' + (user.name ? Util.esc(user.name[0]) : "👤") + "</div>"
       + "<div><div class=\"my-name\">" + Util.esc(user.name || user.username || "用户") + "</div>"
       + '<div class="my-role">' + Util.esc(user.username || "") + " · 用户账号</div></div></div>"
-      + '<div class="my-list">'
+      + '<div class="my-stats">'
+      + '<div class="ms-item" onclick="App.go(\'history\')"><div class="ms-num">' + orderTotal + '</div><div class="ms-label">订单</div></div>'
+      + '<div class="ms-item" onclick="App.go(\'address\')"><div class="ms-num">' + addrCount + '</div><div class="ms-label">地址</div></div>'
+      + '<div class="ms-item" onclick="App.go(\'menu\')"><div class="ms-num">' + cartCount + '</div><div class="ms-label">点餐</div></div>'
+      + "</div></div>"
+      + '<div class="my-group">'
       + '<div class="my-item" onclick="App.go(\'history\')"><span class="mi-ico">📋</span>我的订单<span class="mi-arrow">›</span></div>'
       + '<div class="my-item" onclick="App.go(\'address\')"><span class="mi-ico">📮</span>收货地址<span class="mi-arrow">›</span></div>'
       + '<div class="my-item" onclick="App.go(\'menu\')"><span class="mi-ico">🍜</span>去点餐<span class="mi-arrow">›</span></div>'
+      + "</div>"
+      + '<div class="my-group">'
       + '<div class="my-item" onclick="App.logout()"><span class="mi-ico">🚪</span>退出登录<span class="mi-arrow">›</span></div>'
-      + "</div>", { tabbar: true, title: "我的" });
-  }
-
-  // ==================== 商家端 ====================
-  async function pageMerchant() {
-    if (!guard(2)) return;
-    render(navbar("商家订单管理", { back: false }) + '<div id="mer-root"></div>', { tabbar: false, title: "商家订单" });
-    const root = document.getElementById("mer-root");
-    try {
-      const stats = await Api.merchantStatistics();
-      root.innerHTML = '<div class="merchant-header">'
-        + '<div class="mh-count"><b>' + (stats.toBeConfirmed || 0) + '</b><span>待接单</span></div>'
-        + '<div class="mh-count"><b>' + (stats.confirmed || 0) + '</b><span>待派送</span></div>'
-        + '<div class="mh-count"><b>' + (stats.deliveryInProgress || 0) + '</b><span>派送中</span></div>'
-        + '<div class="mh-count"><b>' + (stats.allOrders || 0) + '</b><span>全部</span></div>'
-        + "</div>"
-        + '<div id="mer-tabs"></div><div id="mer-list" class="page-pad"></div>'
-        + '<div style="height:20px;"></div>';
-      loadMerchant(1);
-    } catch (e) {
-      root.innerHTML = emptyTip("😵", e.message);
-    }
-  }
-
-  async function loadMerchant(status) {
-    const tabs = [{ v: "", t: "全部" }, { v: 2, t: "待接单" }, { v: 3, t: "已接单" }, { v: 4, t: "派送中" }, { v: 5, t: "已完成" }, { v: 6, t: "已取消" }];
-    const tabEl = document.getElementById("mer-tabs");
-    if (tabEl) {
-      tabEl.innerHTML = '<div class="status-tabs" style="position:static;">' + tabs.map(t =>
-        '<span class="st-item' + (String(status) === String(t.v) ? " active" : "") + '" data-v="' + t.v + '">' + t.t + "</span>"
-      ).join("") + "</div>";
-      tabEl.querySelectorAll(".st-item").forEach(el => {
-        el.addEventListener("click", () => loadMerchant(el.dataset.v === "" ? "" : Number(el.dataset.v)));
-      });
-    }
-    const listEl = document.getElementById("mer-list");
-    if (!listEl) return;
-    listEl.innerHTML = '<div class="empty-tip">加载中…</div>';
-    try {
-      const res = await Api.merchantOrders(1, 50, status);
-      const list = res.records || [];
-      listEl.innerHTML = list.length ? list.map(o =>
-        '<div class="order-card">'
-        + '<div class="oc-head"><span>' + Util.esc(o.number || "") + "</span><span class=\"oc-status\">" + Util.orderStatusText(o.status) + "</span></div>"
-        + '<div class="oc-goods">' + (o.orderDetailList || []).map(it =>
-          '<div class="oc-row"><img src="' + Util.img(it.image) + '"><span class="oc-name">' + Util.esc(it.name) + "</span>"
-          + '<span class="oc-num">x' + it.number + "</span></div>"
-        ).join("") + "</div>"
-        + '<div class="oc-foot"><div class="oc-amount">' + Util.esc(o.consignee || "") + " " + Util.esc(o.phone || "") + "<br>"
-        + '<small style="color:#999;font-size:11px;">' + Util.esc(o.address || "") + "</small><br>"
-        + '<b style="color:var(--primary);">￥' + Util.money(o.amount) + "</b></div>"
-        + '<div class="oc-actions" data-id="' + o.id + '">' + merchantActions(o.status) + "</div></div></div>"
-      ).join("") : emptyTip("📦", "暂无订单");
-      bindMerchantActions(list);
-    } catch (e) {
-      listEl.innerHTML = emptyTip("😵", e.message);
-    }
-  }
-
-  function merchantActions(status) {
-    if (status === 2) return '<button class="btn-primary" data-act="confirm">接单</button>';
-    if (status === 3) return '<button class="btn-plain" data-act="delivery">开始配送</button>';
-    if (status === 4) return '<button class="btn-plain" data-act="complete">完成订单</button>';
-    return "";
-  }
-
-  function bindMerchantActions(list) {
-    document.querySelectorAll("#mer-list .oc-actions").forEach(el => {
-      el.addEventListener("click", async e => {
-        const btn = e.target.closest("[data-act]");
-        if (!btn) return;
-        const id = Number(el.dataset.id);
-        const act = btn.dataset.act;
-        try {
-          if (act === "confirm") { await Api.merchantConfirm(id); Util.toast("已接单"); }
-          else if (act === "delivery") { await Api.merchantDelivery(id); Util.toast("订单派送中"); }
-          else if (act === "complete") { await Api.merchantComplete(id); Util.toast("订单已完成"); }
-          loadMerchant(parseHash().params.status || "");
-          const stats = await Api.merchantStatistics();
-          const h = document.querySelector(".merchant-header");
-          if (h) {
-            h.innerHTML = '<div class="mh-count"><b>' + (stats.toBeConfirmed || 0) + '</b><span>待接单</span></div>'
-              + '<div class="mh-count"><b>' + (stats.confirmed || 0) + '</b><span>待派送</span></div>'
-              + '<div class="mh-count"><b>' + (stats.deliveryInProgress || 0) + '</b><span>派送中</span></div>'
-              + '<div class="mh-count"><b>' + (stats.allOrders || 0) + '</b><span>全部</span></div>';
-          }
-        } catch (err) {
-          Util.toast(err.message);
-        }
-      });
-    });
+      + "</div>", { title: "我的" });
   }
 
   // ==================== 事件注册 ====================
-  window.App.setLoginRole = function (role) {
-    state.loginRole = role;
-    document.querySelectorAll(".role-btn").forEach(el => {
-      el.classList.toggle("active", el.textContent.includes(role === 2 ? "商家" : "用户"));
-    });
-  };
-
   window.App.submitAuth = async function (mode) {
     const username = document.getElementById("a-username").value.trim();
     const password = document.getElementById("a-password").value;
     if (!username || !password) { Util.toast("请输入用户名和密码"); return; }
-    const role = state.loginRole || 1;
     try {
       if (mode === "login") {
-        const res = await Api.login(username, password, role);
+        const res = await Api.login(username, password);
         Api.setAuth(res.token, { id: res.id, username: res.username, name: res.name, role: res.role });
         Util.toast("欢迎，" + (res.name || res.username));
-        location.hash = res.role === 2 ? "#/merchant" : "#/menu";
+        location.hash = "#/menu";
       } else {
         const name = (document.getElementById("a-name").value || "").trim();
         const phone = (document.getElementById("a-phone").value || "").trim();
-        await Api.register({ username, password, name, phone, role });
+        await Api.register({ username, password, name, phone, role: 1 });
         Util.toast("注册成功，请登录");
-        state.loginRole = role;
         location.hash = "#/login";
       }
     } catch (e) {
@@ -959,13 +896,6 @@
     Api.clearAuth();
     location.hash = "#/login";
   };
-
-  // 商家端每 15 秒自动刷新（代替 WebSocket 简易推送）
-  setInterval(() => {
-    if (parseHash().name === "merchant" && Api.getUser() && Api.getUser().role === 2) {
-      loadMerchant(parseHash().params.status || "");
-    }
-  }, 15000);
 
   window.addEventListener("hashchange", router);
   router();

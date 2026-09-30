@@ -1,6 +1,6 @@
 /**
- * 苍穹外卖网页版 - API 层
- * 后端地址：同源走 nginx 代理（/user /merchant），也可改为 http://localhost:8080
+ * 苍穹外卖网页版 - API 层（用户端）
+ * 后端地址：同源走 nginx 代理（/user），也可改为 http://localhost:8080
  */
 const API_BASE = "";
 const TOKEN_KEY = "sky_web_token";
@@ -62,8 +62,8 @@ const Api = {
   del(path) { return this.request("DELETE", path); },
 
   // ============ 认证 ============
-  login(username, password, role) {
-    return this.post("/user/user/login", { username, password, role });
+  login(username, password) {
+    return this.post("/user/user/login", { username, password, role: 1 });
   },
   register(payload) {
     return this.post("/user/user/register", payload);
@@ -100,16 +100,5 @@ const Api = {
   },
   orderCancel(id) { return this.put("/user/order/cancel/" + id); },
   orderRepetition(id) { return this.post("/user/order/repetition/" + id); },
-  orderReminder(id) { return this.get("/user/order/reminder/" + id); },
-
-  // ============ 商家端 ============
-  merchantOrders(page, pageSize, status) {
-    let url = "/merchant/order/page?page=" + page + "&pageSize=" + pageSize;
-    if (status != null && status !== "") url += "&status=" + status;
-    return this.get(url);
-  },
-  merchantStatistics() { return this.get("/merchant/order/statistics"); },
-  merchantConfirm(id) { return this.put("/merchant/order/confirm", { id, status: 3 }); },
-  merchantDelivery(id) { return this.put("/merchant/order/delivery/" + id); },
-  merchantComplete(id) { return this.put("/merchant/order/complete/" + id); }
+  orderReminder(id) { return this.get("/user/order/reminder/" + id); }
 };

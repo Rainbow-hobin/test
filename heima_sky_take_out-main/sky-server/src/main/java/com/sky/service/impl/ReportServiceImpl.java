@@ -2,6 +2,7 @@ package com.sky.service.impl;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -10,13 +11,13 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.apache.commons.lang.StringUtils;
 import org.apache.poi.xssf.usermodel.XSSFRow;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
+import com.sky.cache.CacheClient;
 import com.sky.dto.GoodsSalesDTO;
 import com.sky.entity.Orders;
 import com.sky.mapper.OrderMapper;
@@ -44,6 +45,12 @@ public class ReportServiceImpl implements ReportService {
     @Autowired
     private WorkspaceService workspaceService;
 
+    @Autowired
+    private CacheClient cacheClient;
+
+    /** 报表缓存基础 TTL：30分钟（实际写入附加 0~10% 随机抖动，防止四个报表同时过期造成雪崩） */
+    private static final Duration REPORT_CACHE_TTL = Duration.ofMinutes(30);
+
     /**
      * 营业额统计
      *
@@ -52,9 +59,14 @@ public class ReportServiceImpl implements ReportService {
      * @return
      */
     @Override
-    @Cacheable(cacheNames = "reportCache", key = "'turnover:' + #begin + ':' + #end")
     public TurnoverReportVO getTurnoverReport(LocalDate begin, LocalDate end) {
+        return cacheClient.getWithProtection(
+                "reportCache:turnover:" + begin + ":" + end,
+                REPORT_CACHE_TTL,
+                () -> buildTurnoverReport(begin, end));
+    }
 
+    private TurnoverReportVO buildTurnoverReport(LocalDate begin, LocalDate end) {
         List<LocalDate> dates = new ArrayList<>();
         dates.add(begin);
         while (begin.equals(end)) {
@@ -85,8 +97,14 @@ public class ReportServiceImpl implements ReportService {
      * @return
      */
     @Override
-    @Cacheable(cacheNames = "reportCache", key = "'user:' + #begin + ':' + #end")
     public UserReportVO getUserStatistics(LocalDate begin, LocalDate end) {
+        return cacheClient.getWithProtection(
+                "reportCache:user:" + begin + ":" + end,
+                REPORT_CACHE_TTL,
+                () -> buildUserStatistics(begin, end));
+    }
+
+    private UserReportVO buildUserStatistics(LocalDate begin, LocalDate end) {
         List<LocalDate> dateList = new ArrayList<>();
         dateList.add(begin);
 
@@ -123,8 +141,15 @@ public class ReportServiceImpl implements ReportService {
      * @param end
      * @return
      */
-    @Cacheable(cacheNames = "reportCache", key = "'order:' + #begin + ':' + #end")
+    @Override
     public OrderReportVO getOrderStatistics(LocalDate begin, LocalDate end) {
+        return cacheClient.getWithProtection(
+                "reportCache:order:" + begin + ":" + end,
+                REPORT_CACHE_TTL,
+                () -> buildOrderStatistics(begin, end));
+    }
+
+    private OrderReportVO buildOrderStatistics(LocalDate begin, LocalDate end) {
         List<LocalDate> dateList = new ArrayList<>();
         dateList.add(begin);
 
@@ -178,8 +203,15 @@ public class ReportServiceImpl implements ReportService {
      * @param end
      * @return
      */
-    @Cacheable(cacheNames = "reportCache", key = "'top10:' + #begin + ':' + #end")
+    @Override
     public SalesTop10ReportVO getSalesTop10(LocalDate begin, LocalDate end) {
+        return cacheClient.getWithProtection(
+                "reportCache:top10:" + begin + ":" + end,
+                REPORT_CACHE_TTL,
+                () -> buildSalesTop10(begin, end));
+    }
+
+    private SalesTop10ReportVO buildSalesTop10(LocalDate begin, LocalDate end) {
         LocalDateTime beginTime = LocalDateTime.of(begin, LocalTime.MIN);
         LocalDateTime endTime = LocalDateTime.of(end, LocalTime.MAX);
         List<GoodsSalesDTO> goodsSalesDTOList = orderMapper.getSalesTop10(beginTime, endTime);

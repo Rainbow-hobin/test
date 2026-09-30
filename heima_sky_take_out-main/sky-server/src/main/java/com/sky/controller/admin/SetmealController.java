@@ -1,5 +1,6 @@
 package com.sky.controller.admin;
 
+import com.sky.cache.CacheClient;
 import com.sky.dto.SetmealDTO;
 import com.sky.dto.SetmealPageQueryDTO;
 import com.sky.result.PageResult;
@@ -10,7 +11,6 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -24,6 +24,9 @@ public class SetmealController {
     @Autowired
     private SetmealService setmealService;
 
+    @Autowired
+    private CacheClient cacheClient;
+
     /**
      * 新增套餐
      *
@@ -31,10 +34,13 @@ public class SetmealController {
      * @return
      */
     @PostMapping
-    @CacheEvict(cacheNames = "setmealCache", key = "#setmealDTO.categoryId")
     public Result<String> save(@RequestBody SetmealDTO setmealDTO) {
         log.info("新增套餐：{}", setmealDTO);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删；新套餐只影响其所属分类
+        String cacheKey = "setmealCache:" + setmealDTO.getCategoryId();
+        cacheClient.delete(cacheKey);
         setmealService.saveWithDish(setmealDTO);
+        cacheClient.deleteDelayed(cacheKey);
         return Result.success();
     }
 
@@ -59,10 +65,12 @@ public class SetmealController {
      */
     @DeleteMapping
     @ApiOperation("批量删除套餐")
-    @CacheEvict(cacheNames = "setmealCache", allEntries = true)
     public Result<String> delete(@RequestParam List<Long> ids) {
         log.info("删除套餐，ids：{}", ids);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删；可能影响多个分类，按前缀批量删除
+        cacheClient.deleteByPattern("setmealCache*");
         setmealService.deleteBatch(ids);
+        cacheClient.deleteByPatternDelayed("setmealCache*");
         return Result.success();
     }
 
@@ -88,10 +96,12 @@ public class SetmealController {
      */
     @PutMapping
     @ApiOperation("修改套餐")
-    @CacheEvict(cacheNames = "setmealCache", allEntries = true)
     public Result<String> update(@RequestBody SetmealDTO setmealDTO) {
         log.info("修改套餐，请求参数：{}", setmealDTO);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删
+        cacheClient.deleteByPattern("setmealCache*");
         setmealService.update(setmealDTO);
+        cacheClient.deleteByPatternDelayed("setmealCache*");
         return Result.success();
     }
 
@@ -104,10 +114,12 @@ public class SetmealController {
      */
     @PostMapping("/status/{status}")
     @ApiOperation("启用或停用套餐")
-    @CacheEvict(cacheNames = "setmealCache", allEntries = true)
     public Result<String> startOrStop(@PathVariable Integer status, Long id) {
         log.info("启用或停用套餐，status：{}，id：{}", status, id);
+        // 延迟双删：先删缓存 → 更新数据库 → 延迟再删
+        cacheClient.deleteByPattern("setmealCache*");
         setmealService.startOrStop(status, id);
+        cacheClient.deleteByPatternDelayed("setmealCache*");
         return Result.success();
     }
 }

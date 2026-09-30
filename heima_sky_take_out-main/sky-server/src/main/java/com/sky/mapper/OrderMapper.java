@@ -102,4 +102,11 @@ public interface OrderMapper {
      */
     @Select("select * from orders where number = #{orderNumber}")
     Orders getByNumber(String orderNumber);
+
+    /**
+     * 支付成功专用更新：仅当 status=1（待付款）时才更新为已支付，返回影响行数
+     * @param orders
+     * @return 影响行数，0 表示非待付款状态（已被并发支付/取消）
+     */
+    int updateForPayment(Orders orders);
 }

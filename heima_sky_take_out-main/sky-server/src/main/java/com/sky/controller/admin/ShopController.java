@@ -1,5 +1,6 @@
 package com.sky.controller.admin;
 
+import com.sky.cache.ShopStatusLocalCache;
 import com.sky.result.Result;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -17,6 +18,9 @@ public class ShopController {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Autowired
+    private ShopStatusLocalCache shopStatusLocalCache;
+
     /**
      * 修改店铺营业状态
      * @param status
@@ -27,6 +31,8 @@ public class ShopController {
     public Result setStatus(@PathVariable Integer status) {
         log.info("设置店铺营业状态:{}", status == 1 ? "营业" : "打烊");
         redisTemplate.opsForValue().set("SHOP_STATUS", status);
+        // 同步刷新 JVM 本地缓存，单实例下 C 端无需等待 TTL 即可读到最新状态
+        shopStatusLocalCache.put(status);
         return Result.success();
     }
 

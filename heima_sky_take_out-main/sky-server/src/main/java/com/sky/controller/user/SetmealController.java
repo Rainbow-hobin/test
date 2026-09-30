@@ -1,5 +1,6 @@
 package com.sky.controller.user;
 
+import com.sky.cache.CacheClient;
 import com.sky.constant.StatusConstant;
 import com.sky.entity.Setmeal;
 import com.sky.result.Result;
@@ -8,20 +9,28 @@ import com.sky.vo.DishItemVO;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Duration;
+import java.util.Collections;
 import java.util.List;
 
 @RestController("userSetmealController")
 @RequestMapping("/user/setmeal")
 @Api(tags = "C端-套餐浏览接口")
 public class SetmealController {
+
+    /** 套餐列表缓存基础 TTL：1小时（附加随机抖动），管理端改套餐时主动失效 */
+    private static final Duration SETMEAL_CACHE_TTL = Duration.ofHours(1);
+
     @Autowired
     private SetmealService setmealService;
+
+    @Autowired
+    private CacheClient cacheClient;
 
     /**
      * 条件查询
@@ -30,15 +39,21 @@ public class SetmealController {
      * @return
      */
     @GetMapping("/list")
-    @Cacheable(cacheNames = "setmealCache", key = "#categoryId")
     @ApiOperation("根据分类id查询套餐")
     public Result<List<Setmeal>> list(Long categoryId) {
-        Setmeal setmeal = new Setmeal();
-        setmeal.setCategoryId(categoryId);
-        setmeal.setStatus(StatusConstant.ENABLE);
+        // 防穿透第一道防线：非法分类直接返回空
+        if (categoryId == null || categoryId <= 0) {
+            return Result.success(Collections.emptyList());
+        }
 
-        List<Setmeal> list = setmealService.list(setmeal);
-        return Result.success(list);
+        String key = "setmealCache:" + categoryId;
+        List<Setmeal> list = cacheClient.getWithProtection(key, SETMEAL_CACHE_TTL, () -> {
+            Setmeal setmeal = new Setmeal();
+            setmeal.setCategoryId(categoryId);
+            setmeal.setStatus(StatusConstant.ENABLE);
+            return setmealService.list(setmeal);
+        });
+        return Result.success(list == null ? Collections.emptyList() : list);
     }
 
     /**

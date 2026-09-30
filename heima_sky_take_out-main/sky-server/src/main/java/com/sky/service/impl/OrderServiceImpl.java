@@ -65,6 +65,11 @@ public class OrderServiceImpl implements OrderService {
     private static final String SUBMIT_LOCK_PREFIX = "order:submit:lock:";
     private static final long SUBMIT_LOCK_SECONDS = 5L;
 
+    // 订单超时延时队列：Redis ZSet，member=订单id，score=到期时间戳(毫秒)
+    private static final String ORDER_EXPIRE_KEY = "order:expire";
+    // 订单支付超时时间（分钟）
+    private static final long ORDER_TIMEOUT_MINUTES = 15L;
+
     @Autowired
     private OrderMapper orderMapper;
 
@@ -148,6 +153,11 @@ public class OrderServiceImpl implements OrderService {
         // 清空redis中的购物车
         shoppingCartService.cleanShoppingCart();
 
+        // 加入 Redis ZSet 延时队列：score=15分钟后的时间戳，到期由 OrderTask 扫描取消
+        // 即使事务回滚留下脏 member，任务处理前会校验订单状态，不会误取消
+        long expireAt = System.currentTimeMillis() + ORDER_TIMEOUT_MINUTES * 60 * 1000;
+        redisTemplate.opsForZSet().add(ORDER_EXPIRE_KEY, orders.getId().toString(), expireAt);
+
         // 返回 VO
         OrderSubmitVO orderSubmitVO = OrderSubmitVO.builder()
                 .id(orders.getId())
@@ -195,7 +205,15 @@ public class OrderServiceImpl implements OrderService {
         // 根据订单号查询订单
         Orders ordersDB = orderMapper.getByNumber(outTradeNo);
 
-        // 根据订单id更新订单的状态、支付方式、支付状态、结账时间
+        // 方案A：应用层状态校验——非待付款状态直接幂等返回，不执行更新
+        if (ordersDB == null || !Orders.PENDING_PAYMENT.equals(ordersDB.getStatus())) {
+            log.info("订单非待付款状态，支付幂等返回：orderNumber={}, status={}",
+                    outTradeNo, ordersDB == null ? null : ordersDB.getStatus());
+            return;
+        }
+
+        // 方案C：数据库层条件更新——仅当 status=1（待付款）时才更新为已支付
+        // 并发场景下若被其他请求抢先更新，影响行数为 0，同样幂等返回
         Orders orders = Orders.builder()
                 .id(ordersDB.getId())
                 .status(Orders.TO_BE_CONFIRMED)
@@ -203,7 +221,14 @@ public class OrderServiceImpl implements OrderService {
                 .checkoutTime(LocalDateTime.now())
                 .build();
 
-        orderMapper.update(orders);
+        int rows = orderMapper.updateForPayment(orders);
+        if (rows == 0) {
+            log.info("订单支付条件更新未命中，已被并发处理：orderNumber={}", outTradeNo);
+            return;
+        }
+
+        // 支付成功：从超时延时队列移除，不再自动取消
+        redisTemplate.opsForZSet().remove(ORDER_EXPIRE_KEY, ordersDB.getId().toString());
 
         // 通过websocket通知商家
         Map<String, Object> map = new HashMap<>();
@@ -313,6 +338,9 @@ public class OrderServiceImpl implements OrderService {
         orders.setCancelReason("用户取消");
         orders.setCancelTime(LocalDateTime.now());
         orderMapper.update(orders);
+
+        // 手动取消：从超时延时队列移除
+        redisTemplate.opsForZSet().remove(ORDER_EXPIRE_KEY, ordersDB.getId().toString());
     }
 
     /**
@@ -479,6 +507,9 @@ public class OrderServiceImpl implements OrderService {
         orders.setCancelTime(LocalDateTime.now());
         orders.setPayStatus(Orders.REFUND);
         orderMapper.update(orders);
+
+        // 管理端取消：从超时延时队列移除
+        redisTemplate.opsForZSet().remove(ORDER_EXPIRE_KEY, ordersCancelDTO.getId().toString());
     }
 
     /**

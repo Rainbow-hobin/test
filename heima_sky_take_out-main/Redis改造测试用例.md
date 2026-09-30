@@ -5,6 +5,7 @@
 - 测试方式：HTTP 接口实测（经 nginx :80 或直连后端 :8080）+ Redis（redis-cli :6379）/ MySQL（:3307）状态核对
 - 用例设计方法：正常场景 + 边界值 + 异常值 + 安全测试（SQL 注入）+ 原有功能回归
 - 测试结果：**47 个用例全部通过（47/47）**
+- **2026-09-27 追加第三批"缓存穿透 / 击穿 / 雪崩 / 故障降级 / 主动失效"测试：全量 19 项 + 计时与陈旧值补充复测 11 项，全部通过（见第九节）**
 
 ---
 
@@ -152,3 +153,74 @@
 ## 八、测试结论
 
 本次 Redis 改造的 5 个功能点（登录限流、购物车 Hash、INCR 订单号、下单防重、报表缓存）在正常、边界、异常与安全场景下行为均符合预期；购物车与订单（下单/再来一单/取消）联动逻辑正确；原有 Redis 功能（店铺状态、菜品缓存）回归正常。测试中发现的 1 个应用逻辑问题已修复并验证，2 个历史遗留缺陷已登记，建议后续迭代处理。
+
+---
+
+## 九、第三批：缓存穿透 / 击穿 / 雪崩防护改造（2026-09-27）
+
+### 9.1 防护方案
+
+新增统一缓存组件 `com.sky.cache.CacheClient`，所有**业务缓存**（`dish_*`、`setmealCache:*`、`reportCache:*`）的读写均经其核心泛型方法
+`getWithProtection(key, ttl, dbLoader)`，以 Cache-Aside 为基础叠加四重防护：
+
+| 缓存问题 | 防护手段 | 实现要点 |
+| --- | --- | --- |
+| 缓存穿透 | ① 入口参数校验 ② 空值占位符缓存 | Controller 入口拦截 `categoryId` 为 null 或 ≤0 的请求，直接返回空集合、不查库；DB 返回 null 或空集合时写入占位符 `"CACHE_EMPTY"`，TTL 120 秒；命中占位符直接返回空 |
+| 缓存击穿 | 互斥重建锁 + 双重检查 | 未命中先 `SET lock:{key} NX EX 10`（owner 为 UUID）；抢锁失败循环等待（20 次 × 50ms）并重读缓存；拿到锁后二次检查再回源；Lua 脚本比对 owner 安全释放，避免误删他人锁 |
+| 缓存雪崩 | TTL 随机抖动 + 故障熔断 | 正常 TTL 附加 0~10% 随机抖动（菜品 1h → 3600~3960s，报表 30min → 1800~1980s），避免大面积同时过期 |
+| Redis 故障 | 命令快速失败 + 熔断降级 + 陈旧值兜底 | `spring.redis.timeout=1000ms`（原 Lettuce 默认 60s）；任一 Redis 操作异常即打开**5 秒熔断器**，期间跳过全部 Redis 操作直接查 MySQL，熔断到期自动"半开"试探恢复；店铺状态另有 JVM 本地 10s 缓存，Redis 不可用时返回陈旧值，极端情况默认"营业" |
+
+配套改造：
+
+- 读路径：`user/DishController`、`user/SetmealController`（key 改为 `setmealCache:{categoryId}`）、`ReportServiceImpl` 4 个统计方法全部改用 CacheClient，移除 `@Cacheable`；
+- 写路径：`admin/DishController`、`admin/SetmealController` 移除 `@CacheEvict`，改为精确删除（单 key）或 `deleteByPattern`；批量删除使用 **SCAN 游标（count 100）** 替代阻塞 Redis 的 `KEYS` 命令；
+- 清理：删除 `@EnableCaching` 与旧 `RedisCacheManager`，零新增第三方依赖（未引入 Caffeine/Redisson）。
+
+### 9.2 测试用例与结果（全量 19/19 通过）
+
+测试方式：PowerShell 脚本并发压测（RunspacePool 20 并发）+ redis-cli TTL/KEYS 核对 + 后端日志统计 `DishMapper.list` 回源 SQL 次数 + `Stop-Process redis-server` 真实宕机演练。
+
+| 编号 | 用例 | 步骤 | 预期结果 | 实测 |
+| --- | --- | --- | --- | --- |
+| CP-1a | 穿透：不存在分类首次请求 | GET dish/list?categoryId=999999 | 返回空数组，DB 回源 1 次 | PASS |
+| CP-1b | 空值占位符 | 查 `dish_999999` | 值为 `CACHE_EMPTY`，TTL ≤ 120s | PASS |
+| CP-1c | 占位符拦截二次穿透 | 再次请求同参数 | 返回空且后端**0 条回源 SQL** | PASS |
+| CP-2a | 非法参数入口拦截 | categoryId 缺失 / 0 / -1 | 直接返回空集合 | PASS |
+| CP-2b | 非法参数零副作用 | 查日志与 Redis | 不查 SQL、不写缓存 | PASS |
+| CB-1a | 击穿：20 并发可用性 | 删 `dish_1` 后 20 线程同时请求 categoryId=1 | 20 个请求全部成功，各返回 3 条 | PASS |
+| CB-1b | 互斥锁防击穿 | 统计日志中 `DishMapper.list` 次数 | **仅 1 次回源 SQL** | PASS |
+| CB-1c | 锁安全释放 | 请求结束后查 `lock:dish_1` | 锁 key 已删除 | PASS |
+| CB-1d | 重建缓存带抖动 TTL | TTL `dish_1` | 落在 3550~3960s（实测样本均 >3600） | PASS |
+| AV-1a | 雪崩：报表 TTL 抖动 | 调 4 个统计接口 × 2 个日期区间共 8 key | 8 个 key TTL 全部在 1800~1980s | PASS |
+| AV-1b | 抖动有效非固定 | 比较 8 个 TTL | max > 1830s，各 key 存在差异 | PASS |
+| AV-2a | 宕机降级查库 | 杀掉 redis-server 后请求 categoryId=2 | code=1，仍从 MySQL 返回 3 条 | PASS |
+| AV-2b | 宕机时店铺状态 | Redis 宕机期间 GET shop/status | code=1，命中 JVM 本地缓存 | PASS |
+| AV-2c | Redis 恢复 | 重启 redis-server | PING=PONG | PASS |
+| AV-2d | 自动重连+熔断恢复 | 轮询菜品接口直到缓存写回 | Lettuce 自动重连，`dish_1` 重新写入 | PASS |
+| EV-0 | 套餐缓存正常 | 预热 setmealCache:5 | C 端返回 2 个套餐 | PASS |
+| EV-1a | 真实+占位两类缓存并存 | 再请求 categoryId=999999 | Redis 中 2 个 key（真实值 + `CACHE_EMPTY`） | PASS |
+| EV-1b | 管理端停用触发 SCAN 失效 | POST admin/setmeal/status/0?id=1 | `setmealCache*` 全部删除（含占位符，0 个残留） | PASS |
+| EV-1c | 恢复启用可见性 | POST status/1 后 C 端查询 | 套餐重新可见（≥1 条） | PASS |
+
+### 9.3 计时与陈旧值补充复测（11/11 通过）
+
+第一轮全量测试中，Redis 宕机用例曾因 **Lettuce 默认命令超时 60 秒**导致请求挂起（后端日志证实约 60s 重连后请求才执行，功能本身正确）。修复（1000ms 超时 + 5s 熔断器 + 陈旧值兜底）后补充计时复测：
+
+| 编号 | 用例 | 预期 | 实测 |
+| --- | --- | --- | --- |
+| AV2-1a | 宕机瞬间查询店铺状态（本地缓存新鲜） | 200 且 <500ms | PASS（毫秒级） |
+| AV2-1b | 宕机时菜品接口（熔断降级直查 MySQL） | 200 返回 3 条且 <3s | PASS（首个失败命令 1s 超时即触发熔断，后续 Redis 操作全部跳过） |
+| AV2-1c | 等待本地 TTL 过期（11s）后再查店铺状态 | 200 且 <5s，返回陈旧值 1 | PASS |
+| AV2-2a/b | Redis 重启 + 后端熔断半开恢复 | PING 恢复且 `dish_1` 成功写回 | PASS |
+| EV-1a/b/c | SCAN 失效链路复核 | 停用前 2 key，停用后 0 残留，启用后重新可见 | PASS |
+| RG-1/2/3 | 回归：4 个报表接口、TTL 抖动、二次调用结果一致 | 全 code=1；TTL 均在 1800~1980s；结果逐元素相同 | PASS |
+
+### 9.4 测试中发现并修复的问题
+
+1. **Lettuce 默认 60s 命令超时导致降级形同虚设**：Redis 进程被杀后命令排队等待重连而非立即抛异常，请求被挂起。修复：`application.yml` 增加 `spring.redis.timeout: 1000ms`，使 CacheClient 的 catch 降级逻辑可在 1s 内触发。
+2. **降级路径上 5 个 Redis 调用各等 1s（共约 5.1s）**：读、抢锁、双重检查、回填、释放锁均独立超时。修复：CacheClient 内置**故障熔断器**（任一操作失败后 5 秒内跳过全部 Redis 操作），降级请求实际耗时降到 ~1s 量级，同时大幅减轻故障期 Redis 重连压力。
+3. **套餐缓存在 Redis 刚重启的连接抖动窗口写入瞬时失败**：属恢复窗口环境抖动（日志为 1 秒命令超时），熔断器半开机制保证下一轮自动恢复；测试脚本相应改为"轮询到缓存真正写回"后再进入后续断言，消除假失败。
+
+### 9.5 数据清理
+
+测试结束后：`dish_999999`、`setmealCache:999999` 等占位符与 `setmealCache:*`、`dish_1/2` 测试缓存均已删除；套餐 #1 已恢复启用（status=1，category_id=5，共 2 个套餐）；店铺状态恢复为"营业"；未产生任何 MySQL 脏数据。

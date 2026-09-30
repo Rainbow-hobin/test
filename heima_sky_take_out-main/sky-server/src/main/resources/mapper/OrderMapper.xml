@@ -44,6 +44,14 @@
         where id = #{id}
     </update>
 
+    <update id="updateForPayment" parameterType="Orders">
+        update orders
+        set status = #{status},
+            pay_status = #{payStatus},
+            checkout_time = #{checkoutTime}
+        where id = #{id} and status = 1
+    </update>
+
     <select id="pageQuery" resultType="Orders">
         select * from orders
         <where>

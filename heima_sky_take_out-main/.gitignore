@@ -4,3 +4,5 @@
 *.class
 *Test.java
 **/test/
+# 含数据库/OSS 密钥的本地环境配置，禁止提交
+**/application-dev.yml
