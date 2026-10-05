@@ -8,6 +8,17 @@
         values (#{username}, #{password}, #{name}, #{phone}, #{sex}, #{avatar}, #{role}, #{status}, #{createTime})
     </insert>
 
+    <update id="update">
+        update user
+        <set>
+            <if test="name != null and name != ''">name = #{name},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="sex != null">sex = #{sex},</if>
+            <if test="avatar != null and avatar != ''">avatar = #{avatar},</if>
+        </set>
+        where id = #{id}
+    </update>
+
     <select id="countByMap" resultType="java.lang.Integer">
         select count(id) from user
         <where>

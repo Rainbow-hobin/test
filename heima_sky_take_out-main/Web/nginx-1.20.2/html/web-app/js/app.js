@@ -39,13 +39,15 @@
   const TAB_DEFS = [
     { key: "menu", label: "点餐", ico: "🍜" },
     { key: "history", label: "订单", ico: "📋" },
+    { key: "messages", label: "消息", ico: "💬" },
     { key: "my", label: "我的", ico: "👤" }
   ];
   // 子页面归属哪个主 tab（用于非主 tab 页保持对应高亮）
   const TAB_HIGHLIGHT = {
     menu: "menu", order: "menu",
     history: "history", pay: "history", success: "history",
-    my: "my", address: "my", addressForm: "my"
+    messages: "messages", chat: "messages",
+    my: "my", address: "my", addressForm: "my", profile: "my"
   };
   let tabbarInited = false;
   function syncTabbar(routeName) {
@@ -62,13 +64,28 @@
     if (!tabbarInited) {
       bar.innerHTML = TAB_DEFS.map(t =>
         '<div class="tab-item" data-key="' + t.key + '" onclick="App.go(\'' + t.key + '\')">'
-        + '<span class="tab-ico">' + t.ico + "</span><span>" + t.label + "</span></div>"
+        + '<span class="tab-ico-wrap"><span class="tab-ico">' + t.ico + "</span>"
+        + (t.key === "messages" ? '<span class="tab-badge hidden" id="msg-badge">0</span>' : "")
+        + "</span><span>" + t.label + "</span></div>"
       ).join("");
       tabbarInited = true;
     }
     const active = TAB_HIGHLIGHT[routeName];
     bar.querySelectorAll(".tab-item").forEach(el =>
       el.classList.toggle("active", el.dataset.key === active));
+  }
+
+  // 消息 tab 未读红点
+  function setMsgBadge(count) {
+    const badge = document.getElementById("msg-badge");
+    if (!badge) return;
+    count = Number(count) || 0;
+    badge.textContent = count > 99 ? "99+" : String(count);
+    badge.classList.toggle("hidden", count === 0);
+  }
+  async function refreshUnread() {
+    if (!Api.getUser()) return;
+    try { setMsgBadge(await Api.chatUnreadCount()); } catch (e) { /* 忽略红点失败 */ }
   }
 
   function emptyTip(ico, text) {
@@ -92,7 +109,10 @@
     address: pageAddress,
     addressForm: pageAddressForm,
     history: pageHistory,
-    my: pageMy
+    messages: pageMessages,
+    chat: pageChat,
+    my: pageMy,
+    profile: pageProfile
   };
 
   function parseHash() {
@@ -104,16 +124,25 @@
   function router() {
     const { name, params } = parseHash();
     const fn = routes[name] || pageMenu;
+    // 登录后全局保持聊天长连接（任意页面都能实时收消息/更新红点），登出时关闭
+    if (name === "login" || name === "register" || !Api.getUser()) closeChatSocket();
+    else ensureChatSocket();
     state.route = name;
     state.params = params;
     fn(params);
     syncTabbar(name);
+    refreshUnread();
     app.scrollTop = 0;
   }
 
   function go(name, params) {
     const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-    location.hash = "#/" + name + qs;
+    const h = "#/" + name + qs;
+    if (location.hash === h) {
+      router();
+    } else {
+      location.hash = h;
+    }
   }
 
   window.App = { go, state };
@@ -204,7 +233,9 @@
       + '<span class="shop-status' + (status ? "" : " closed") + '">' + (status ? "营业中" : "休息中") + "</span></div>"
       + '<div class="shop-meta"><span>📍 距离1.5km</span><span>🛵 配送费6元</span><span>⏱ 预计12min</span></div>'
       + '<div class="shop-address">北京市朝阳区新街大道一号楼8层</div>'
-      + "</div></div></div>"
+      + "</div></div>"
+      + '<button class="shop-chat-btn" onclick="App.go(\'chat\')">💬 联系商家</button>'
+      + "</div>"
       + '<div class="menu-body">'
       + '<div class="menu-types">' + state.categories.map((c, i) =>
         '<div class="type-item' + (i === state.typeIndex ? " active" : "") + '" data-idx="' + i + '">' + Util.esc(c.name) + "</div>"
@@ -513,8 +544,7 @@
       + '<div class="os-row total"><span>应付金额</span><span>￥' + Util.money(total + 7) + "</span></div>"
       + "</div></div>"
       + '<div class="bottom-bar"><div class="bb-price"><small>￥</small>' + Util.money(total + 7) + '</div>'
-      + '<button class="btn-primary" id="order-submit">提交订单</button></div>'
-      + '<div id="addr-picker" class="hidden"></div>';
+      + '<button class="btn-primary" id="order-submit">提交订单</button></div>';
   }
 
   function bindOrderEvents(defaultAddr, addresses) {
@@ -528,29 +558,32 @@
     });
 
     document.getElementById("addr-change").addEventListener("click", () => {
-      const picker = document.getElementById("addr-picker");
-      picker.classList.toggle("hidden");
-      if (!picker.classList.contains("hidden")) {
-        picker.innerHTML = '<div class="mask-layer" id="addr-mask"></div>'
-          + '<div class="cart-pop" style="bottom:0;border-radius:16px 16px 0 0;max-height:60%;">'
-          + '<div class="cart-head"><div>选择收货地址</div><button class="link" id="addr-add" style="color:var(--primary);font-size:13px;">＋ 新增地址</button></div>'
-          + (addresses.length ? addresses.map(a =>
-            '<div class="addr-item" data-id="' + a.id + '"><div class="ai-radio' + (addr && addr.id === a.id ? " on" : "") + '">●</div><div class="ai-main">'
-            + '<div class="ai-name">' + Util.esc(a.consignee || "") + "<span>" + Util.esc(a.phone || "") + "</span></div>"
-            + '<div class="ai-detail">' + Util.esc((a.provinceName || "") + (a.cityName || "") + (a.districtName || "") + (a.detail || "")) + "</div>"
-            + "</div></div>"
-          ).join("") : '<div class="empty-tip">暂无地址</div>')
-          + "</div>";
-        picker.querySelectorAll(".addr-item").forEach(el => {
-          el.addEventListener("click", async () => {
-            addr = addresses.find(a => a.id === Number(el.dataset.id));
-            await Api.addressDefault(addr.id);
-            go("order");
-          });
+      const shell = document.querySelector(".page-shell");
+      let picker = document.getElementById("addr-picker-pop");
+      if (picker) { picker.remove(); return; }
+      picker = document.createElement("div");
+      picker.id = "addr-picker-pop";
+      picker.innerHTML = '<div class="pop-mask" id="addr-mask"></div>'
+        + '<div class="addr-sheet">'
+        + '<div class="cart-head"><div>选择收货地址</div><button class="link" id="addr-add" style="color:var(--primary);font-size:13px;">＋ 新增地址</button></div>'
+        + '<div class="addr-sheet-list">'
+        + (addresses.length ? addresses.map(a =>
+          '<div class="addr-item" data-id="' + a.id + '"><div class="ai-radio' + (addr && addr.id === a.id ? " on" : "") + '">●</div><div class="ai-main">'
+          + '<div class="ai-name">' + Util.esc(a.consignee || "") + "<span>" + Util.esc(a.phone || "") + "</span></div>"
+          + '<div class="ai-detail">' + Util.esc((a.provinceName || "") + (a.cityName || "") + (a.districtName || "") + (a.detail || "")) + "</div>"
+          + "</div></div>"
+        ).join("") : '<div class="empty-tip">暂无地址</div>')
+        + "</div></div>";
+      shell.appendChild(picker);
+      picker.querySelectorAll(".addr-item").forEach(el => {
+        el.addEventListener("click", async () => {
+          addr = addresses.find(a => a.id === Number(el.dataset.id));
+          await Api.addressDefault(addr.id);
+          go("order");
         });
-        document.getElementById("addr-add").addEventListener("click", () => go("addressForm", { from: "order" }));
-        document.getElementById("addr-mask").addEventListener("click", () => picker.classList.add("hidden"));
-      }
+      });
+      document.getElementById("addr-add").addEventListener("click", () => go("addressForm", { from: "order" }));
+      document.getElementById("addr-mask").addEventListener("click", () => picker.remove());
     });
 
     document.querySelector("#addr-card").addEventListener("click", e => {
@@ -650,7 +683,7 @@
     render('<div class="order-top"><button class="pt-back" onclick="history.back()">‹</button><span>我的订单</span></div>'
       + '<div id="his-status" class="order-tabs"></div><div id="his-root" class="page-pad"></div>'
       , { title: "我的订单" });
-    loadHistory(1);
+    loadHistory("");
   }
 
   async function loadHistory(status) {
@@ -684,7 +717,9 @@
       ).join("") : '<div class="oc-row">' + Util.esc(o.orderDishes || "订单明细") + "</div>")
       + "</div>"
       + '<div class="oc-foot"><div class="oc-amount">共' + (items.reduce((s, i) => s + (i.number || 0), 0) || 1) + "件，实付 <b>￥" + Util.money(o.amount) + "</b></div>"
-      + '<div class="oc-actions" data-id="' + o.id + '" data-number="' + Util.esc(o.number || "") + '">' + orderActions(o.status) + "</div></div></div>";
+      + '<div class="oc-actions" data-id="' + o.id + '" data-number="' + Util.esc(o.number || "") + '">' + orderActions(o.status)
+      + '<button class="btn-plain" data-act="consult">咨询订单</button>'
+      + "</div></div></div>";
   }
 
   function orderActions(status) {
@@ -727,6 +762,8 @@
           } else if (act === "repetition") {
             await Api.orderRepetition(id);
             Util.toast("已加入购物车");
+          } else if (act === "consult") {
+            go("chat", { orderId: id });
           }
         } catch (err) {
           Util.toast(err.message);
@@ -839,6 +876,305 @@
     });
   }
 
+  // ==================== 消息会话 / 聊天 ====================
+  let chatWs = null;
+  let chatReconnectTimer = null;
+  let chatReadTimer = null;
+
+  function chatWsUrl() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    return proto + "://" + location.host + "/ws/chat?type=1&token=" + encodeURIComponent(Api.getToken());
+  }
+
+  function ensureChatSocket() {
+    if (!Api.getToken()) return;
+    if (chatWs && (chatWs.readyState === WebSocket.OPEN || chatWs.readyState === WebSocket.CONNECTING)) return;
+    if (chatReconnectTimer) { clearTimeout(chatReconnectTimer); chatReconnectTimer = null; }
+    let ws;
+    try { ws = new WebSocket(chatWsUrl()); } catch (e) { return; }
+    chatWs = ws;
+    ws.onopen = () => {};
+    ws.onmessage = ev => {
+      let env;
+      try { env = JSON.parse(ev.data); } catch (e) { return; }
+      if (env.type === "msg" && env.message) {
+        const m = env.message;
+        if (m.senderType === 2 || m.senderType === 3) {
+          //商家/机器人发来的消息
+          if (state.route === "chat") {
+            appendBubble(m);
+            scheduleMarkRead();
+          } else {
+            refreshUnread();
+            if (state.route === "messages") loadConversations();
+          }
+        } else if (state.route === "messages") {
+          //多标签页自己发的消息，刷新会话列表
+          loadConversations();
+        }
+      } else if (env.type === "modeSwitch") {
+        //后端转人工时要求前端切到人工模式
+        localStorage.setItem("chatMode", env.mode === "human" ? "human" : "bot");
+        syncChatModeUI();
+      } else if (env.type === "ack" && state.route === "chat") {
+        resolveAckBubble(env.clientMsgId, env.message);
+      } else if (env.type === "error") {
+        Util.toast(env.msg || "消息发送失败");
+      }
+    };
+    ws.onclose = () => {
+      if (chatWs !== ws) return;
+      if (Api.getToken() && state.route !== "login" && state.route !== "register") {
+        chatReconnectTimer = setTimeout(ensureChatSocket, 3000);
+      }
+    };
+    ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  }
+
+  function closeChatSocket() {
+    if (chatReconnectTimer) { clearTimeout(chatReconnectTimer); chatReconnectTimer = null; }
+    if (chatWs) {
+      const ws = chatWs;
+      chatWs = null;
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      try { ws.close(); } catch (e) {}
+    }
+    if (chatReadTimer) { clearTimeout(chatReadTimer); chatReadTimer = null; }
+  }
+
+  function scheduleMarkRead() {
+    if (chatReadTimer) clearTimeout(chatReadTimer);
+    chatReadTimer = setTimeout(async () => {
+      try { await Api.chatRead(); refreshUnread(); } catch (e) {}
+    }, 400);
+  }
+
+  async function pageMessages() {
+    if (!guard()) return;
+    render('<div class="order-top"><button class="pt-back" onclick="history.back()">‹</button><span>消息</span></div>'
+      + '<div id="conv-root" class="page-pad"><div class="empty-tip">加载中…</div></div>'
+      , { title: "消息" });
+    await loadConversations();
+  }
+
+  async function loadConversations() {
+    const root = document.getElementById("conv-root");
+    if (!root) return;
+    try {
+      const list = await Api.chatConversations();
+      const c = (list && list[0]) || null;
+      const hasMsg = c && c.lastTime;
+      let preview = "有问题随时联系商家客服";
+      if (hasMsg) {
+        preview = c.lastMsgType === 2 ? "[订单卡片]" : Util.esc(c.lastContent || "");
+      }
+      root.innerHTML = '<div class="conv-item" onclick="App.go(\'chat\')">'
+        + '<div class="conv-avatar">🏪</div>'
+        + '<div class="conv-main"><div class="conv-line1"><span class="conv-name">商家客服</span>'
+        + '<span class="conv-time">' + (hasMsg ? fmtMsgTime(c.lastTime) : "") + "</span></div>"
+        + '<div class="conv-line2"><span class="conv-last">' + preview + "</span>"
+        + (c && c.unreadCount ? '<span class="conv-badge">' + (c.unreadCount > 99 ? "99+" : c.unreadCount) + "</span>" : "")
+        + "</div></div></div>";
+    } catch (e) {
+      root.innerHTML = emptyTip("😵", e.message || "加载失败");
+    }
+  }
+
+  function fmtMsgTime(t) {
+    if (!t) return "";
+    const s = String(t);
+    const d = new Date(s.replace(/-/g, "/"));
+    if (isNaN(d.getTime())) return s.length > 16 ? s.slice(5, 16) : s;
+    const now = new Date();
+    const sameDay = d.toDateString() === now.toDateString();
+    const pad = n => String(n).padStart(2, "0");
+    if (sameDay) return pad(d.getHours()) + ":" + pad(d.getMinutes());
+    return (d.getMonth() + 1) + "月" + d.getDate() + "日";
+  }
+
+  //客服模式：bot=智能客服优先 human=直接人工（记住用户选择）
+  function getChatMode() { return localStorage.getItem("chatMode") === "human" ? "human" : "bot"; }
+
+  //同步聊天页顶栏模式按钮/标题（不在聊天页时静默跳过）
+  function syncChatModeUI() {
+    const modeBtn = document.getElementById("chat-mode");
+    const titleEl = document.getElementById("chat-title");
+    const isBot = getChatMode() === "bot";
+    if (modeBtn) {
+      modeBtn.textContent = isBot ? "🤖 智能客服" : "🙋 人工客服";
+      modeBtn.classList.toggle("bot", isBot);
+      modeBtn.classList.toggle("human", !isBot);
+    }
+    if (titleEl) titleEl.textContent = isBot ? "商家客服 · 智能" : "商家客服 · 人工";
+  }
+
+  async function pageChat(params) {
+    if (!guard()) return;
+    render('<div class="chat-page">'
+      + '<div class="chat-top"><button class="pt-back" onclick="history.back()">‹</button>'
+      + '<span class="chat-title" id="chat-title"></span>'
+      + '<button class="chat-mode-btn" id="chat-mode"></button>'
+      + '<button class="chat-pick-btn" id="chat-pick">📋 订单</button></div>'
+      + (params.orderId ? '<div id="chat-banner" class="chat-banner"></div>' : "")
+      + '<div id="chat-msgs" class="chat-msgs"></div>'
+      + '<div class="chat-input-bar"><input id="chat-input" placeholder="请输入消息…" maxlength="500">'
+      + '<button id="chat-send" class="btn-primary">发送</button></div>'
+      + '<div id="chat-mask" class="mask-layer hidden"></div>'
+      + '<div id="order-picker" class="order-picker hidden"></div>'
+      + "</div>", { title: "商家客服" });
+
+    const msgs = document.getElementById("chat-msgs");
+    msgs.innerHTML = '<div class="empty-tip">加载中…</div>';
+    let history = [];
+    try {
+      history = await Api.chatHistory();
+      await Api.chatRead();
+      await refreshUnread();
+    } catch (e) {
+      msgs.innerHTML = emptyTip("😵", e.message || "加载失败");
+      return;
+    }
+    msgs.innerHTML = history.length
+      ? history.map(bubbleHtml).join("")
+      : '<div class="chat-tip">还没有消息，发送一条开始咨询吧</div>';
+    scrollChatBottom();
+
+    const input = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("chat-send");
+    const modeBtn = document.getElementById("chat-mode");
+
+    syncChatModeUI();
+    modeBtn.addEventListener("click", () => {
+      localStorage.setItem("chatMode", getChatMode() === "bot" ? "human" : "bot");
+      syncChatModeUI();
+    });
+
+    const doSend = () => {
+      const text = input.value.trim();
+      if (!text) return;
+      if (!chatWs || chatWs.readyState !== WebSocket.OPEN) {
+        Util.toast("连接中，请稍后再试");
+        return;
+      }
+      const clientMsgId = "t" + Date.now() + Math.floor(Math.random() * 1000);
+      const temp = { clientMsgId, senderType: 1, msgType: 1, content: text, createTime: null, sending: true };
+      appendBubble(temp);
+      const payload = { clientMsgId, msgType: 1, content: text };
+      if (getChatMode() === "human") payload.forceHuman = true;
+      chatWs.send(JSON.stringify(payload));
+      input.value = "";
+    };
+    sendBtn.addEventListener("click", doSend);
+    input.addEventListener("keydown", e => { if (e.key === "Enter") doSend(); });
+
+    document.getElementById("chat-pick").addEventListener("click", openOrderPicker);
+    document.getElementById("chat-mask").addEventListener("click", closeOrderPicker);
+
+    if (params.orderId) {
+      const banner = document.getElementById("chat-banner");
+      try {
+        const o = await Api.orderDetail(params.orderId);
+        banner.innerHTML = '<span>咨询订单：' + Util.esc(o.number) + "　￥" + Util.money(o.amount) + "</span>"
+          + '<button id="banner-send" class="btn-primary">发送订单</button>';
+        document.getElementById("banner-send").addEventListener("click", () => sendOrderCard(o));
+      } catch (e) { banner.remove(); }
+    }
+  }
+
+  function scrollChatBottom() {
+    const msgs = document.getElementById("chat-msgs");
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+
+  function bubbleHtml(m) {
+    const mine = m.senderType === 1;
+    const isBot = m.senderType === 3;
+    const cmid = m.clientMsgId ? ' data-cmid="' + Util.esc(m.clientMsgId) + '"' : "";
+    let body;
+    if (m.msgType === 2) {
+      let snap = {};
+      try { snap = JSON.parse(m.content || "{}"); } catch (e) {}
+      body = '<div class="chat-order-card" onclick="App.go(\'order\',{orderId:' + (snap.orderId || 0) + '})">'
+        + '<div class="coc-head">🧾 订单卡片' + (m.sending ? '<small>（发送中）</small>' : "") + "</div>"
+        + '<div class="coc-no">' + Util.esc(snap.number || "") + "</div>"
+        + '<div class="coc-foot"><span>' + Util.orderStatusText(snap.status) + "</span><b>￥" + Util.money(snap.amount) + "</b></div></div>";
+    } else {
+      body = (isBot ? '<div class="bot-tag">智能客服</div>' : "")
+        + '<div class="bubble' + (m.sending ? " sending" : "") + (isBot ? " bot" : "") + '">' + Util.esc(m.content || "") + "</div>";
+    }
+    const time = m.createTime ? '<div class="msg-time">' + Util.esc(String(m.createTime).slice(5, 16)) + "</div>" : "";
+    return '<div class="msg-row ' + (mine ? "mine" : "other") + '"' + cmid + " data-id='" + (m.id || "") + "'>"
+      + (mine ? "" : '<div class="msg-avatar">' + (isBot ? "🤖" : "🏪") + "</div>")
+      + '<div class="msg-col">' + time + body + "</div></div>";
+  }
+
+  function appendBubble(m) {
+    const msgs = document.getElementById("chat-msgs");
+    if (!msgs) return;
+    const tip = msgs.querySelector(".chat-tip");
+    if (tip) tip.remove();
+    msgs.insertAdjacentHTML("beforeend", bubbleHtml(m));
+    scrollChatBottom();
+  }
+
+  function resolveAckBubble(clientMsgId, saved) {
+    if (!clientMsgId) return;
+    const node = document.querySelector('[data-cmid="' + clientMsgId + '"]');
+    if (!node) return;
+    node.outerHTML = bubbleHtml(saved);
+    scrollChatBottom();
+  }
+
+  function sendOrderCard(o) {
+    if (!chatWs || chatWs.readyState !== WebSocket.OPEN) {
+      Util.toast("连接中，请稍后再试");
+      return;
+    }
+    const clientMsgId = "t" + Date.now() + Math.floor(Math.random() * 1000);
+    const temp = {
+      clientMsgId, senderType: 1, msgType: 2, sending: true,
+      content: JSON.stringify({ orderId: o.id, number: o.number, amount: o.amount, status: o.status })
+    };
+    appendBubble(temp);
+    chatWs.send(JSON.stringify({ clientMsgId, msgType: 2, orderId: o.id }));
+    const banner = document.getElementById("chat-banner");
+    if (banner) banner.remove();
+  }
+
+  async function openOrderPicker() {
+    const mask = document.getElementById("chat-mask");
+    const pop = document.getElementById("order-picker");
+    mask.classList.remove("hidden");
+    pop.classList.remove("hidden");
+    pop.innerHTML = '<div class="op-title">选择要咨询的订单</div><div id="op-list" class="op-list"><div class="empty-tip">加载中…</div></div>';
+    try {
+      const res = await Api.orderHistory(1, 20, "");
+      const list = res.records || [];
+      const box = document.getElementById("op-list");
+      box.innerHTML = list.length ? list.map(o =>
+        '<div class="op-item" data-id="' + o.id + '"><div><div class="op-no">' + Util.esc(o.number) + "</div>"
+        + '<div class="op-status">' + Util.orderStatusText(o.status) + "</div></div>"
+        + '<b>￥' + Util.money(o.amount) + "</b></div>"
+      ).join("") : emptyTip("📋", "暂无订单");
+      box.querySelectorAll(".op-item").forEach(el => {
+        el.addEventListener("click", () => {
+          const o = list.find(x => x.id === Number(el.dataset.id));
+          closeOrderPicker();
+          sendOrderCard(o);
+        });
+      });
+    } catch (e) {
+      document.getElementById("op-list").innerHTML = emptyTip("😵", e.message || "加载失败");
+    }
+  }
+
+  function closeOrderPicker() {
+    document.getElementById("chat-mask").classList.add("hidden");
+    document.getElementById("order-picker").classList.add("hidden");
+  }
+
   // ==================== 我的 ====================
   async function pageMy() {
     if (!guard()) return;
@@ -859,13 +1195,70 @@
       + '<div class="ms-item" onclick="App.go(\'menu\')"><div class="ms-num">' + cartCount + '</div><div class="ms-label">点餐</div></div>'
       + "</div></div>"
       + '<div class="my-group">'
+      + '<div class="my-item" onclick="App.go(\'profile\')"><span class="mi-ico">👤</span>编辑资料<span class="mi-arrow">›</span></div>'
       + '<div class="my-item" onclick="App.go(\'history\')"><span class="mi-ico">📋</span>我的订单<span class="mi-arrow">›</span></div>'
       + '<div class="my-item" onclick="App.go(\'address\')"><span class="mi-ico">📮</span>收货地址<span class="mi-arrow">›</span></div>'
-      + '<div class="my-item" onclick="App.go(\'menu\')"><span class="mi-ico">🍜</span>去点餐<span class="mi-arrow">›</span></div>'
       + "</div>"
       + '<div class="my-group">'
       + '<div class="my-item" onclick="App.logout()"><span class="mi-ico">🚪</span>退出登录<span class="mi-arrow">›</span></div>'
       + "</div>", { title: "我的" });
+  }
+
+  // ==================== 编辑资料 ====================
+  async function pageProfile() {
+    if (!guard()) return;
+    render('<div class="loading">加载中…</div>', { title: "编辑资料" });
+    let user;
+    try {
+      user = await Api.userInfo();
+      // 刷新本地缓存
+      Api.setUser(Object.assign(Api.getUser() || {}, user));
+    } catch (e) {
+      render('<div class="empty-tip">获取资料失败：' + Util.esc(e.message || e) + '</div><div style="text-align:center;padding:20px;"><button class="btn-primary" onclick="App.go(\'profile\')">重试</button></div>', { title: "编辑资料" });
+      return;
+    }
+
+    const avatarChar = user.name ? Util.esc(user.name[0]) : "👤";
+    render(
+      navbar("编辑资料", { back: true })
+      + '<div class="page-pad profile-wrap">'
+      + '<div class="card profile-card">'
+      + '<div class="profile-avatar">' + avatarChar + '</div>'
+      + '<div class="field"><label>用户名</label><div class="pf-value">' + Util.esc(user.username || "") + '</div></div>'
+      + '<div class="field"><label>姓名</label><input id="pf-name" type="text" placeholder="请输入姓名" value="' + Util.esc(user.name || "") + '" maxlength="20"></div>'
+      + '<div class="field"><label>手机号</label><input id="pf-phone" type="tel" placeholder="请输入手机号" value="' + Util.esc(user.phone || "") + '" maxlength="11"></div>'
+      + '<div class="field"><label>性别</label><div class="field-row pf-sex">'
+      +   '<label class="pf-radio"><input type="radio" name="pf-sex" value="1"' + (user.sex === "1" ? " checked" : "") + '><span>男</span></label>'
+      +   '<label class="pf-radio"><input type="radio" name="pf-sex" value="0"' + (user.sex === "0" ? " checked" : "") + '><span>女</span></label>'
+      +   '<label class="pf-radio"><input type="radio" name="pf-sex" value=""' + (!user.sex ? " checked" : "") + '><span>保密</span></label>'
+      + '</div></div>'
+      + "</div>"
+      + '<button class="btn-primary" id="pf-save">保存</button>'
+      + "</div>", { title: "编辑资料" });
+
+    document.getElementById("pf-save").addEventListener("click", async () => {
+      const name = document.getElementById("pf-name").value.trim();
+      const phone = document.getElementById("pf-phone").value.trim();
+      const sexEl = document.querySelector('input[name="pf-sex"]:checked');
+      const sex = sexEl ? sexEl.value : "";
+      if (!name) { Util.toast("姓名不能为空"); return; }
+      if (phone && !/^1\d{10}$/.test(phone)) { Util.toast("手机号格式不正确"); return; }
+      const btn = document.getElementById("pf-save");
+      btn.disabled = true;
+      try {
+        await Api.updateUserInfo({ name, phone, sex });
+        // 更新本地缓存中的用户昵称，我的页头部同步生效
+        const cached = Api.getUser() || {};
+        cached.name = name;
+        Api.setUser(cached);
+        Util.toast("保存成功");
+        setTimeout(() => App.go("my"), 600);
+      } catch (e) {
+        Util.toast(e.message || "保存失败");
+      } finally {
+        btn.disabled = false;
+      }
+    });
   }
 
   // ==================== 事件注册 ====================
@@ -893,6 +1286,7 @@
 
   window.App.logout = async function () {
     if (!(await Util.confirm("确定退出登录吗？"))) return;
+    closeChatSocket();
     Api.clearAuth();
     location.hash = "#/login";
   };

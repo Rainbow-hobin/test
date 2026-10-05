@@ -27,6 +27,8 @@ public interface UserMapper {
     @Select("select * from user where id = #{id}")
     User getById(Long userId);
 
+    void update(User user);
+
     /**
      * 根据动态条件统计用户数量
      * @param begin 开始时间

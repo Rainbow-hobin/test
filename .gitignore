@@ -10,3 +10,9 @@ heima_sky_take_out-main/Web/nginx-1.20.2/logs/
 
 # Maven 构建产物
 target/
+
+# 智能客服 Python 运行环境与密钥
+智能客服/.venv/
+智能客服/__pycache__/
+智能客服/.env
+智能客服/.chroma/

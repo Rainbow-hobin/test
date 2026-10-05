@@ -1,0 +1,7 @@
+# RAG 最小闭环依赖清单
+# 安装：.venv\Scripts\pip install -r requirements.txt
+
+chromadb>=0.5.0      # 本地向量数据库：存向量、做相似度检索（零配置，起步最合适）
+fastembed>=0.3.0     # 本地 Embedding 模型（bge-small-zh，中文效果好，无需 GPU/API Key）
+openai>=1.30.0       # 调用 DeepSeek / 通义 / 智谱等 OpenAI 兼容的大模型 API
+python-dotenv>=1.0.0 # 读取 .env 配置文件

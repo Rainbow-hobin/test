@@ -138,4 +138,20 @@ public class UserServiceImpl implements UserService {
                 .build();
         userMapper.insert(user);
     }
+
+    /**
+     * 根据id查询用户
+     */
+    @Override
+    public User getById(Long id) {
+        return userMapper.getById(id);
+    }
+
+    /**
+     * 更新用户信息
+     */
+    @Override
+    public void update(User user) {
+        userMapper.update(user);
+    }
 }

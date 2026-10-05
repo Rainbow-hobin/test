@@ -254,3 +254,18 @@ INSERT INTO `setmeal_dish` (`id`, `setmeal_id`, `dish_id`, `name`, `price`, `cop
 -- 管理端员工账号（admin / 123456），供原有管理后台使用
 INSERT INTO `employee` (`id`, `name`, `username`, `password`, `phone`, `sex`, `id_number`, `status`, `create_time`, `update_time`) VALUES
 (1, '管理员', 'admin', 'e10adc3949ba59abbe56e057f20f883e', '13800000000', '1', '110101199001011234', 1, '2026-08-01 09:00:00', '2026-08-01 09:00:00');
+CREATE TABLE IF NOT EXISTS `chat_message` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL COMMENT 'conversation user id',
+  `sender_type` tinyint NOT NULL COMMENT '1 user 2 merchant',
+  `sender_id` bigint NOT NULL DEFAULT 0 COMMENT 'sender id',
+  `msg_type` tinyint NOT NULL DEFAULT 1 COMMENT '1 text 2 order card',
+  `content` text,
+  `order_id` bigint DEFAULT NULL,
+  `is_read` tinyint NOT NULL DEFAULT 0,
+  `create_time` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_user_id` (`user_id`,`id`),
+  KEY `idx_unread_user` (`user_id`,`sender_type`,`is_read`),
+  KEY `idx_unread_merchant` (`sender_type`,`is_read`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='user merchant chat';

@@ -18,4 +18,14 @@ public interface UserService {
      * @param userRegisterDTO
      */
     void register(UserRegisterDTO userRegisterDTO);
+
+    /**
+     * 根据id查询用户
+     */
+    User getById(Long id);
+
+    /**
+     * 更新用户信息
+     */
+    void update(User user);
 }

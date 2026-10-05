@@ -1,6 +1,7 @@
 package com.sky.controller.user;
 
 import com.sky.constant.JwtClaimsConstant;
+import com.sky.context.BaseContext;
 import com.sky.dto.UserLoginDTO;
 import com.sky.dto.UserRegisterDTO;
 import com.sky.entity.User;
@@ -13,10 +14,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +30,43 @@ public class UserController {
 
     @Autowired
     private JwtProperties jwtProperties;
+
+    @GetMapping("/info")
+    @ApiOperation("获取当前用户信息")
+    public Result<UserLoginVO> info() {
+        Long userId = BaseContext.getCurrentId();
+        User user = userService.getById(userId);
+        if (user == null) {
+            return Result.error("用户不存在");
+        }
+        UserLoginVO vo = UserLoginVO.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .name(user.getName())
+                .role(user.getRole())
+                .token(null)
+                .phone(user.getPhone())
+                .sex(user.getSex())
+                .avatar(user.getAvatar())
+                .build();
+        return Result.success(vo);
+    }
+
+    @PutMapping("/info")
+    @ApiOperation("更新当前用户信息")
+    public Result update(@RequestBody User user) {
+        Long userId = BaseContext.getCurrentId();
+        user.setId(userId);
+        // 不允许通过这些字段提权或改关键信息
+        user.setUsername(null);
+        user.setPassword(null);
+        user.setRole(null);
+        user.setStatus(null);
+        user.setIdNumber(null);
+        user.setCreateTime(null);
+        userService.update(user);
+        return Result.success();
+    }
 
     @PostMapping("/login")
     @ApiOperation("账号密码登录")

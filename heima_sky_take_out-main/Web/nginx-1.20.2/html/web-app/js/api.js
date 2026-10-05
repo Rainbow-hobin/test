@@ -21,6 +21,9 @@ const Api = {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(user));
   },
+  setUser(user) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  },
   clearAuth() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
@@ -69,6 +72,10 @@ const Api = {
     return this.post("/user/user/register", payload);
   },
 
+  // ============ 个人信息 ============
+  userInfo() { return this.get("/user/user/info"); },
+  updateUserInfo(payload) { return this.put("/user/user/info", payload); },
+
   // ============ 点餐 ============
   shopStatus() { return this.get("/user/shop/status"); },
   categories(type) { return this.get("/user/category/list" + (type ? "?type=" + type : "")); },
@@ -100,5 +107,11 @@ const Api = {
   },
   orderCancel(id) { return this.put("/user/order/cancel/" + id); },
   orderRepetition(id) { return this.post("/user/order/repetition/" + id); },
-  orderReminder(id) { return this.get("/user/order/reminder/" + id); }
+  orderReminder(id) { return this.get("/user/order/reminder/" + id); },
+
+  // ============ 聊天 ============
+  chatConversations() { return this.get("/user/chat/conversations"); },
+  chatHistory() { return this.get("/user/chat/history"); },
+  chatRead() { return this.put("/user/chat/read"); },
+  chatUnreadCount() { return this.get("/user/chat/unreadCount"); }
 };
