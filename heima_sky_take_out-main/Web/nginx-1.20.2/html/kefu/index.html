@@ -5,131 +5,232 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>苍穹外卖 · 商家客服</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; }
-  .hidden { display: none !important; }
+  :root {
+    --brand-50:#fff5f0; --brand-100:#ffe6d9; --brand-300:#ffa582; --brand-400:#fb7a4d;
+    --brand-500:#f2552c; --brand-600:#df4218;
+    --grad-brand: linear-gradient(135deg,#fb6a3a 0%,#f2552c 52%,#e0431a 100%);
+    --bot:#2f6fed; --bot-bg:#ecf3fe; --bot-line:#d8e7fd;
+    --success:#16a34a; --danger:#e5484d;
+    --ink-900:#17181c; --ink-700:#2b2d33; --ink-500:#5d6470; --ink-400:#8b919c; --ink-300:#b6bcc6;
+    --line:#ececf0; --line-soft:#f4f5f7; --surface:#f6f7f9;
+    --shadow-xs:0 1px 2px rgba(23,24,28,.05);
+    --shadow-sm:0 2px 10px rgba(23,24,28,.06);
+    --shadow-md:0 8px 24px rgba(23,24,28,.09);
+    --shadow-brand-sm:0 3px 9px rgba(226,67,26,.24);
+    --ease:cubic-bezier(.32,.72,0,1);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body {
+    height:100%;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Helvetica Neue",Arial,sans-serif;
+    background:
+      radial-gradient(820px 520px at 4% -14%, rgba(251,122,77,.20), transparent 62%),
+      radial-gradient(780px 560px at 116% 118%, rgba(47,111,237,.12), transparent 58%),
+      radial-gradient(640px 640px at 50% 52%, rgba(255,183,107,.07), transparent 70%),
+      #e6e8ee;
+    background-attachment: fixed;
+    color:var(--ink-700);
+    -webkit-font-smoothing:antialiased;
+  }
+  .hidden { display:none !important; }
+  button { font-family:inherit; cursor:pointer; }
+  input, textarea { font-family:inherit; }
+
+  /* 线性图标 */
+  .ic { width:1em; height:1em; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; display:block; }
 
   /* 登录 */
   #login-mask {
-    position: fixed; inset: 0; background: linear-gradient(135deg, #ff7a45, #ff4d4f);
-    display: flex; align-items: center; justify-content: center;
+    position:fixed; inset:0;
+    background:
+      radial-gradient(560px 320px at 110% -10%, rgba(255,255,255,.16), transparent 60%),
+      radial-gradient(420px 300px at -10% 110%, rgba(255,255,255,.10), transparent 55%),
+      linear-gradient(170deg,#fb6a3a 0%,#ef4d24 42%,#e0431a 100%);
+    display:flex; align-items:center; justify-content:center;
   }
   .login-card {
-    background: #fff; border-radius: 14px; padding: 36px 32px;
-    width: 340px; box-shadow: 0 12px 40px rgba(0,0,0,.2);
+    background:#fff; border-radius:24px; padding:34px 32px 28px;
+    width:360px; box-shadow:0 30px 70px -18px rgba(23,24,28,.42), 0 10px 28px rgba(185,53,18,.30);
+    animation:popIn .28s var(--ease) backwards;
   }
-  .login-card h1 { font-size: 22px; margin-bottom: 4px; }
-  .login-card p { font-size: 13px; color: #999; margin-bottom: 24px; }
+  @keyframes popIn { from{opacity:0;transform:translateY(12px) scale(.97)} to{opacity:1;transform:translateY(0) scale(1)} }
+  .login-card .lg-logo {
+    width:54px; height:54px; border-radius:15px; margin-bottom:16px;
+    background:var(--brand-50); color:var(--brand-600);
+    display:flex; align-items:center; justify-content:center; font-size:28px;
+  }
+  .login-card h1 { font-size:21px; color:var(--ink-900); margin-bottom:4px; }
+  .login-card p { font-size:13px; color:var(--ink-400); margin-bottom:22px; }
   .login-card input {
-    width: 100%; border: 1px solid #e5e5e5; border-radius: 8px;
-    padding: 11px 12px; font-size: 14px; margin-bottom: 14px; outline: none;
+    width:100%; border:1px solid transparent; border-radius:10px;
+    padding:12px 14px; font-size:14px; margin-bottom:12px; outline:none;
+    background:var(--line-soft); color:var(--ink-700);
+    transition:border-color .18s,background .18s,box-shadow .18s;
   }
-  .login-card input:focus { border-color: #ff7a45; }
+  .login-card input::placeholder { color:var(--ink-300); }
+  .login-card input:focus { border-color:var(--brand-300); background:#fff; box-shadow:0 0 0 3px rgba(242,85,44,.12); }
   .login-card button {
-    width: 100%; border: none; border-radius: 8px; background: #ff7043;
-    color: #fff; font-size: 15px; padding: 11px; cursor: pointer;
+    width:100%; border:none; border-radius:999px; background:var(--grad-brand);
+    color:#fff; font-size:15px; font-weight:600; padding:12px; margin-top:4px;
+    box-shadow:var(--shadow-brand-sm);
+    transition:transform .12s var(--ease),filter .18s,box-shadow .18s;
   }
-  .login-card button:active { background: #e85d30; }
-  .login-err { color: #f5222d; font-size: 12px; min-height: 18px; margin-bottom: 6px; }
+  .login-card button:active { transform:scale(.98); filter:brightness(.96); box-shadow:none; }
+  .login-err { color:var(--danger); font-size:12px; min-height:18px; margin:2px 0 6px; }
 
   /* 主界面 */
-  #app { height: 100%; display: flex; flex-direction: column; }
+  #app { height:100%; display:flex; flex-direction:column; }
   .topbar {
-    height: 56px; background: #fff; border-bottom: 1px solid #e8e8e8;
-    display: flex; align-items: center; padding: 0 20px; flex-shrink: 0;
+    height:60px; background:rgba(255,255,255,.9);
+    -webkit-backdrop-filter:blur(10px); backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+    display:flex; align-items:center; padding:0 22px; flex-shrink:0;
   }
-  .topbar .logo { font-size: 17px; font-weight: 700; color: #ff7043; }
-  .topbar .logo small { color: #999; font-weight: 400; margin-left: 8px; font-size: 12px; }
-  .topbar .spacer { flex: 1; }
-  .conn-dot { font-size: 12px; color: #999; margin-right: 16px; }
+  .topbar .logo {
+    font-size:17px; font-weight:700; color:var(--ink-900);
+    display:inline-flex; align-items:center; gap:9px;
+  }
+  .topbar .logo .lg-mark {
+    width:34px; height:34px; border-radius:10px;
+    background:var(--grad-brand); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:19px;
+    box-shadow:var(--shadow-brand-sm);
+  }
+  .topbar .logo small { color:var(--ink-400); font-weight:400; margin-left:4px; font-size:12px; }
+  .topbar .spacer { flex:1; }
+  .conn-dot { font-size:12px; color:var(--ink-500); margin-right:18px; display:inline-flex; align-items:center; }
   .conn-dot::before {
-    content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: #52c41a; margin-right: 5px; vertical-align: 1px;
+    content:""; display:inline-block; width:8px; height:8px; border-radius:50%;
+    background:var(--success); margin-right:6px;
+    box-shadow:0 0 0 3px rgba(22,163,74,.14);
   }
-  .conn-dot.offline::before { background: #f5222d; }
-  .emp-name { font-size: 13px; color: #666; margin-right: 14px; }
+  .conn-dot.offline::before { background:var(--danger); box-shadow:0 0 0 3px rgba(229,72,77,.14); }
+  .emp-name { font-size:13px; color:var(--ink-500); margin-right:14px; }
   .btn-logout {
-    border: 1px solid #ddd; background: #fff; border-radius: 6px;
-    padding: 6px 14px; font-size: 13px; cursor: pointer; color: #666;
+    border:1px solid var(--line); background:#fff; border-radius:999px;
+    padding:7px 16px; font-size:13px; color:var(--ink-500);
+    transition:all .15s;
   }
+  .btn-logout:hover { border-color:var(--brand-300); color:var(--brand-600); }
+  .btn-logout:active { background:var(--line-soft); }
 
-  .main { flex: 1; min-height: 0; display: flex; padding: 16px; gap: 16px; }
+  .main { flex:1; min-height:0; display:flex; padding:18px; gap:18px; }
   .sider {
-    width: 280px; background: #fff; border-radius: 12px;
-    display: flex; flex-direction: column; overflow: hidden;
-    box-shadow: 0 2px 10px rgba(0,0,0,.05); flex-shrink: 0;
+    width:300px; background:#fff; border-radius:18px;
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:var(--shadow-sm); flex-shrink:0;
   }
-  .sider-head { padding: 16px; font-weight: 600; border-bottom: 1px solid #f2f2f2; flex-shrink: 0; }
-  .conv-list { flex: 1; overflow-y: auto; }
+  .sider-head {
+    padding:17px 18px 14px; font-weight:600; font-size:15px; color:var(--ink-900);
+    border-bottom:1px solid var(--line-soft); flex-shrink:0;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .sider-head .sh-count { font-size:12px; color:var(--ink-400); font-weight:400; }
+  .conv-list { flex:1; overflow-y:auto; padding:8px; }
   .conv {
-    display: flex; align-items: center; gap: 10px; padding: 13px 16px; cursor: pointer;
-    border-bottom: 1px solid #f7f7f7;
+    display:flex; align-items:center; gap:11px; padding:11px 12px; cursor:pointer;
+    border-radius:14px; margin-bottom:2px;
+    transition:background .15s;
   }
-  .conv:hover { background: #fafafa; }
-  .conv.active { background: #fff4ef; }
+  .conv:hover { background:var(--line-soft); }
+  .conv.active { background:var(--brand-50); }
+  .conv.active .conv-name { color:var(--brand-600); }
   .conv-avatar {
-    width: 40px; height: 40px; border-radius: 50%; background: #e6f4ff; color: #1677ff;
-    display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0;
+    width:42px; height:42px; border-radius:50%; background:var(--brand-50); color:var(--brand-600);
+    display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0;
   }
-  .conv-main { flex: 1; min-width: 0; }
-  .conv-line1 { display: flex; justify-content: space-between; }
-  .conv-name { font-size: 14px; font-weight: 600; }
-  .conv-time { font-size: 11px; color: #bbb; }
-  .conv-line2 { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; gap: 6px; }
-  .conv-last { font-size: 12px; color: #999; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; flex: 1; }
+  .conv-main { flex:1; min-width:0; }
+  .conv-line1 { display:flex; justify-content:space-between; align-items:baseline; }
+  .conv-name { font-size:14px; font-weight:600; color:var(--ink-900); }
+  .conv-time { font-size:11px; color:var(--ink-300); flex-shrink:0; margin-left:8px; }
+  .conv-line2 { display:flex; justify-content:space-between; align-items:center; margin-top:4px; gap:6px; }
+  .conv-last { font-size:12px; color:var(--ink-400); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; flex:1; }
   .conv-badge {
-    background: #f5222d; color: #fff; font-size: 11px; border-radius: 9px;
-    min-width: 18px; height: 18px; line-height: 18px; text-align: center; padding: 0 5px; flex-shrink: 0;
+    background:var(--danger); color:#fff; font-size:11px; font-weight:600; border-radius:9px;
+    min-width:18px; height:18px; line-height:18px; text-align:center; padding:0 5px; flex-shrink:0;
+    box-shadow:0 2px 5px rgba(229,72,77,.35);
   }
-  .sider-empty { text-align: center; color: #bbb; font-size: 13px; padding: 40px 0; }
+  .sider-empty { text-align:center; color:var(--ink-300); font-size:13px; padding:56px 0; }
 
   .chat {
-    flex: 1; min-width: 0; background: #fff; border-radius: 12px;
-    display: flex; flex-direction: column; overflow: hidden;
-    box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    flex:1; min-width:0; background:#fff; border-radius:18px;
+    display:flex; flex-direction:column; overflow:hidden;
+    box-shadow:var(--shadow-sm);
   }
   .chat-head {
-    padding: 14px 20px; border-bottom: 1px solid #f2f2f2; font-weight: 600; flex-shrink: 0;
+    padding:15px 22px; border-bottom:1px solid var(--line-soft); font-weight:600;
+    font-size:15px; color:var(--ink-900); flex-shrink:0;
   }
-  .chat-head small { font-weight: 400; color: #999; margin-left: 8px; }
-  .chat-msgs { flex: 1; min-height: 0; overflow-y: auto; padding: 20px; background: #f5f6f8; }
-  .chat-tip { text-align: center; color: #bbb; font-size: 13px; margin-top: 30px; }
-  .msg-row { display: flex; margin-bottom: 16px; }
-  .msg-row.me { justify-content: flex-end; }
+  .chat-head small { font-weight:400; color:var(--ink-400); margin-left:8px; font-size:12px; }
+  .chat-msgs {
+    flex:1; min-height:0; overflow-y:auto; padding:22px;
+    background:
+      radial-gradient(420px 240px at 108% -8%, rgba(47,111,237,.07), transparent 60%),
+      linear-gradient(180deg,#f2f6fc 0%,#edf1f8 100%);
+  }
+  .chat-tip { text-align:center; color:var(--ink-300); font-size:13px; margin-top:30px; }
+  .msg-row { display:flex; margin-bottom:16px; }
+  .msg-row.me { justify-content:flex-end; }
   .msg-ava {
-    width: 36px; height: 36px; border-radius: 50%; background: #fff; border: 1px solid #eee;
-    display: flex; align-items: center; justify-content: center; font-size: 19px; margin-right: 9px; flex-shrink: 0;
+    width:36px; height:36px; border-radius:50%; background:#fff; border:1px solid var(--line);
+    box-shadow:var(--shadow-xs);
+    display:flex; align-items:center; justify-content:center; font-size:20px; margin-right:10px; flex-shrink:0;
   }
-  .msg-col { max-width: 66%; display: flex; flex-direction: column; }
-  .me .msg-col { align-items: flex-end; }
-  .msg-time { font-size: 10px; color: #bbb; margin-bottom: 3px; }
-  .bubble { padding: 9px 13px; border-radius: 10px; font-size: 14px; line-height: 1.5; word-break: break-word; white-space: pre-wrap; }
-  .other .bubble { background: #fff; border-top-left-radius: 2px; }
-  .me .bubble { background: #ff7043; color: #fff; border-top-right-radius: 2px; }
-  .bubble.sending { opacity: .6; }
+  .msg-ava.av-bot { background:var(--bot-bg); border-color:var(--bot-line); color:var(--bot); }
+  .msg-col { max-width:66%; display:flex; flex-direction:column; }
+  .me .msg-col { align-items:flex-end; }
+  .msg-time { font-size:10px; color:var(--ink-300); margin-bottom:4px; }
+  .bubble {
+    padding:10px 14px; border-radius:14px; font-size:14px; line-height:1.6;
+    word-break:break-word; white-space:pre-wrap;
+  }
+  .other .bubble { background:#fff; color:var(--ink-700); border-top-left-radius:4px; box-shadow:var(--shadow-xs); }
+  .me .bubble {
+    background:var(--grad-brand); color:#fff; border-top-right-radius:4px;
+    box-shadow:var(--shadow-brand-sm);
+  }
+  .bubble.sending { opacity:.65; }
+  .bot-tag {
+    font-size:10px; color:var(--bot); margin-bottom:3px; display:inline-block;
+    background:#e3eefd; border:1px solid var(--bot-line); border-radius:999px; padding:1px 9px; font-weight:500;
+  }
+  .other .bubble.bot { background:var(--bot-bg); border:1px solid var(--bot-line); box-shadow:none; }
   .order-card {
-    width: 230px; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1);
+    width:230px; background:#fff; border-radius:12px; overflow:hidden; box-shadow:var(--shadow-xs);
   }
-  .me .order-card { background: #fff3ed; }
-  .oc-h { background: #f7f7f7; padding: 7px 11px; font-size: 12px; color: #666; }
-  .oc-n { padding: 8px 11px 4px; font-size: 12px; word-break: break-all; }
-  .oc-f { display: flex; justify-content: space-between; padding: 4px 11px 9px; font-size: 12px; color: #888; }
-  .oc-f b { color: #ff7043; font-size: 15px; }
+  .me .order-card { background:var(--brand-50); }
+  .oc-h {
+    background:var(--line-soft); padding:8px 12px; font-size:12px; color:var(--ink-500);
+    display:flex; align-items:center; gap:5px;
+  }
+  .oc-h .ic { width:13px; height:13px; }
+  .oc-n { padding:9px 12px 4px; font-size:12px; color:var(--ink-700); word-break:break-all; }
+  .oc-f { display:flex; justify-content:space-between; padding:4px 12px 10px; font-size:12px; color:var(--ink-400); }
+  .oc-f b { color:var(--brand-600); font-size:15px; font-variant-numeric:tabular-nums; }
 
-  .chat-bar { display: flex; gap: 10px; padding: 12px 16px; border-top: 1px solid #f2f2f2; flex-shrink: 0; }
+  .chat-bar { display:flex; gap:10px; padding:12px 16px; border-top:1px solid var(--line-soft); flex-shrink:0; background:#fff; }
   .chat-bar textarea {
-    flex: 1; border: 1px solid #e8e8e8; border-radius: 8px; resize: none; height: 44px;
-    padding: 10px 12px; font-size: 14px; outline: none; font-family: inherit;
+    flex:1; border:1px solid transparent; border-radius:14px; resize:none; height:46px;
+    padding:12px 15px; font-size:14px; outline:none; background:var(--line-soft);
+    transition:border-color .18s,background .18s,box-shadow .18s;
   }
-  .chat-bar textarea:focus { border-color: #ff7a45; }
+  .chat-bar textarea::placeholder { color:var(--ink-300); }
+  .chat-bar textarea:focus { border-color:var(--brand-300); background:#fff; box-shadow:0 0 0 3px rgba(242,85,44,.12); }
   .chat-bar button {
-    align-self: flex-end; border: none; background: #ff7043; color: #fff;
-    border-radius: 8px; padding: 0 26px; height: 44px; font-size: 14px; cursor: pointer;
+    align-self:flex-end; border:none; background:var(--grad-brand); color:#fff;
+    border-radius:999px; padding:0 30px; height:46px; font-size:14px; font-weight:600;
+    box-shadow:var(--shadow-brand-sm);
+    transition:transform .12s var(--ease),filter .18s,box-shadow .18s;
   }
-  .chat-bar button:disabled { background: #ffc7ae; cursor: not-allowed; }
+  .chat-bar button:active { transform:scale(.97); filter:brightness(.96); box-shadow:none; }
+  .chat-bar button:disabled { background:var(--ink-300); box-shadow:none; cursor:not-allowed; }
   .chat-placeholder {
-    flex: 1; display: flex; align-items: center; justify-content: center;
-    color: #bbb; font-size: 14px;
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;
+    color:var(--ink-300); font-size:14px;
+  }
+  .chat-placeholder .ph-ico {
+    width:72px; height:72px; border-radius:50%; background:var(--line-soft);
+    display:flex; align-items:center; justify-content:center; font-size:34px; color:var(--ink-300);
   }
 </style>
 </head>
@@ -137,6 +238,7 @@
 
 <div id="login-mask">
   <div class="login-card">
+    <div class="lg-logo" id="lg-logo"></div>
     <h1>商家客服工作台</h1>
     <p>苍穹外卖 · 使用后台管理员账号登录</p>
     <input id="lg-username" placeholder="管理员账号" value="admin" autocomplete="username">
@@ -148,7 +250,7 @@
 
 <div id="app" class="hidden">
   <div class="topbar">
-    <div class="logo">🏪 苍穹外卖客服<small>商家工作台</small></div>
+    <div class="logo"><span class="lg-mark" id="top-mark"></span>苍穹外卖客服<small>商家工作台</small></div>
     <div class="spacer"></div>
     <span class="conn-dot" id="conn-dot">已连接</span>
     <span class="emp-name" id="emp-name"></span>
@@ -156,11 +258,11 @@
   </div>
   <div class="main">
     <div class="sider">
-      <div class="sider-head">会话列表</div>
+      <div class="sider-head">会话列表<span class="sh-count" id="sider-count"></span></div>
       <div class="conv-list" id="conv-list"></div>
     </div>
     <div class="chat" id="chat-panel">
-      <div class="chat-placeholder" id="chat-empty">请选择左侧会话开始回复</div>
+      <div class="chat-placeholder" id="chat-empty"><span class="ph-ico" id="ph-ico"></span>请选择左侧会话开始回复</div>
       <div class="chat-head hidden" id="chat-head"></div>
       <div class="chat-msgs hidden" id="chat-msgs"></div>
       <div class="chat-bar hidden" id="chat-bar">
@@ -176,6 +278,21 @@
   var TOKEN_KEY = "sky_kefu_token";
   var EMP_KEY = "sky_kefu_emp";
   var STATUS_TEXT = { 1: "待付款", 2: "待接单", 3: "已接单", 4: "派送中", 5: "已完成", 6: "已取消" };
+
+  // 线性图标（与用户端 H5 同款：24×24，1.8 线宽，currentColor）
+  function ic(inner) {
+    return '<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + inner + "</svg>";
+  }
+  var Ico = {
+    store: ic('<path d="M3.5 9.2 5 4h14l1.5 5.2"/><path d="M4.5 9.4a2.7 2.7 0 0 0 5 0 2.7 2.7 0 0 0 5 0 2.7 2.7 0 0 0 5 0"/><path d="M5 10.5V20h14v-9.5"/><path d="M9.5 20v-4.8h5V20"/>'),
+    user: ic('<circle cx="12" cy="8" r="4"/><path d="M4.5 20c0-4 3.6-6 7.5-6s7.5 2 7.5 6"/>'),
+    bot: ic('<rect x="4.2" y="8.5" width="15.6" height="10.5" rx="3.2"/><path d="M12 8.5V5"/><circle cx="12" cy="3.8" r="1.1" fill="currentColor" stroke="none"/><circle cx="9.4" cy="13.2" r="1.05" fill="currentColor" stroke="none"/><circle cx="14.6" cy="13.2" r="1.05" fill="currentColor" stroke="none"/><path d="M9.6 16.2h4.8"/><path d="M2.8 12.8v2.6"/><path d="M21.2 12.8v2.6"/>'),
+    receipt: ic('<path d="M5 2.5v19l2-1.2 2 1.2 2-1.2 2 1.2 2-1.2 2 1.2V2.5l-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2z"/><path d="M9 8h6"/><path d="M9 11.5h6"/><path d="M9 15h4"/>'),
+    chat: ic('<path d="M21 11.6a8.4 8.4 0 0 1-8.5 8.4 8.6 8.6 0 0 1-3.9-.9L3 21l1.9-5.6A8.4 8.4 0 1 1 21 11.6z"/><circle cx="9.2" cy="11.6" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="11.6" r="1" fill="currentColor" stroke="none"/><circle cx="14.8" cy="11.6" r="1" fill="currentColor" stroke="none"/>')
+  };
+  document.getElementById("lg-logo").innerHTML = Ico.store;
+  document.getElementById("top-mark").innerHTML = Ico.store;
+  document.getElementById("ph-ico").innerHTML = Ico.chat;
 
   var token = localStorage.getItem(TOKEN_KEY) || "";
   var emp = JSON.parse(localStorage.getItem(EMP_KEY) || "null");
@@ -324,6 +441,8 @@
 
   function renderConvList() {
     var box = $("conv-list");
+    var unread = conversations.reduce(function (s, c) { return s + (c.unreadCount || 0); }, 0);
+    $("sider-count").textContent = unread ? unread + " 条未读" : (conversations.length ? conversations.length + " 个会话" : "");
     if (!conversations.length) {
       box.innerHTML = '<div class="sider-empty">暂无用户咨询</div>';
       return;
@@ -331,7 +450,7 @@
     box.innerHTML = conversations.map(function (c) {
       var name = c.userName || c.username || ("用户" + c.userId);
       return '<div class="conv' + (currentUser === c.userId ? " active" : "") + '" data-uid="' + c.userId + '">'
-        + '<div class="conv-avatar">👤</div>'
+        + '<div class="conv-avatar">' + Ico.user + '</div>'
         + '<div class="conv-main"><div class="conv-line1"><span class="conv-name">' + esc(name) + '</span>'
         + '<span class="conv-time">' + esc(fmtTime(c.lastTime)) + '</span></div>'
         + '<div class="conv-line2"><span class="conv-last">' + convPreview(c) + '</span>'
@@ -383,19 +502,21 @@
 
   function bubbleHtml(m) {
     var mine = m.senderType === 2;
+    var isBot = m.senderType === 3;
     var cmid = m.clientMsgId ? ' data-cmid="' + esc(m.clientMsgId) + '"' : "";
     var body;
     if (m.msgType === 2) {
       var s = {};
       try { s = JSON.parse(m.content || "{}"); } catch (e) {}
-      body = '<div class="order-card"><div class="oc-h">🧾 订单卡片' + (m.sending ? "（发送中）" : "") + "</div>"
+      body = '<div class="order-card"><div class="oc-h">' + Ico.receipt + "订单卡片" + (m.sending ? "（发送中）" : "") + "</div>"
         + '<div class="oc-n">' + esc(s.number || "") + "</div>"
         + '<div class="oc-f"><span>' + esc(STATUS_TEXT[s.status] || "未知状态") + '</span><b>￥' + money(s.amount) + "</b></div></div>";
     } else {
-      body = '<div class="bubble' + (m.sending ? " sending" : "") + '">' + esc(m.content) + "</div>";
+      body = (isBot ? '<div class="bot-tag">智能客服</div>' : "")
+        + '<div class="bubble' + (m.sending ? " sending" : "") + (isBot ? " bot" : "") + '">' + esc(m.content) + "</div>";
     }
     return '<div class="msg-row ' + (mine ? "me" : "other") + '"' + cmid + '>'
-      + (mine ? "" : '<div class="msg-ava">' + (m.senderType === 3 ? "🤖" : "👤") + "</div>")
+      + (mine ? "" : '<div class="msg-ava' + (isBot ? " av-bot" : "") + '">' + (isBot ? Ico.bot : Ico.user) + "</div>")
       + '<div class="msg-col">' + (m.createTime ? '<div class="msg-time">' + esc(fmtTime(m.createTime)) + "</div>" : "")
       + body + "</div></div>";
   }

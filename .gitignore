@@ -16,3 +16,6 @@ target/
 智能客服/__pycache__/
 智能客服/.env
 智能客服/.chroma/
+
+# 本地运行日志
+*.log

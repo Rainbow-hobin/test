@@ -24,7 +24,22 @@ const Api = {
   setUser(user) {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
   },
+  // 头像仅保存在本地浏览器（按用户 ID 隔离），不上传后端
+  _avatarKey() {
+    const u = this.getUser() || {};
+    return "sky_web_avatar_" + (u.id != null ? u.id : "guest");
+  },
+  getAvatar() {
+    return localStorage.getItem(this._avatarKey()) || "";
+  },
+  setAvatar(dataUrl) {
+    localStorage.setItem(this._avatarKey(), dataUrl);
+  },
+  clearAvatar() {
+    localStorage.removeItem(this._avatarKey());
+  },
   clearAuth() {
+    this.clearAvatar();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
   },
