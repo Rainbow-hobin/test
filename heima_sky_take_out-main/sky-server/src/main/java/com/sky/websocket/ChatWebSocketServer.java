@@ -9,6 +9,7 @@ import com.sky.mapper.ChatMessageMapper;
 import com.sky.mapper.OrderMapper;
 import com.sky.properties.JwtProperties;
 import com.sky.service.BotService;
+import com.sky.service.ChatOrderService;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,7 @@ public class ChatWebSocketServer {
     private static ChatMessageMapper chatMessageMapper;
     private static OrderMapper orderMapper;
     private static BotService botService;
+    private static ChatOrderService chatOrderService;
 
     @Autowired
     public void setJwtProperties(JwtProperties jwtProperties) {
@@ -88,6 +90,11 @@ public class ChatWebSocketServer {
     @Autowired
     public void setBotService(BotService botService) {
         ChatWebSocketServer.botService = botService;
+    }
+
+    @Autowired
+    public void setChatOrderService(ChatOrderService chatOrderService) {
+        ChatWebSocketServer.chatOrderService = chatOrderService;
     }
 
     //当前连接身份
@@ -159,12 +166,14 @@ public class ChatWebSocketServer {
                     chatMessage = buildMessage(identityId, TYPE_USER, identityId, MSG_TEXT, content.trim(), null);
                     chatMessageMapper.insert(chatMessage);
                     sendAck(session, clientMsgId, chatMessage);
-                    if (node.path("forceHuman").asBoolean(false)) {
-                        //用户选择了人工客服：跳过机器人，直接转人工
+                    boolean forceHuman = node.path("forceHuman").asBoolean(false);
+                    //显式人工模式且没有进行中的下单会话：直接转人工；
+                    //否则进入异步处理（对话下单状态机优先，未接管再走 RAG/转人工）
+                    if (forceHuman && (chatOrderService == null
+                            || !chatOrderService.hasActiveSession(identityId))) {
                         broadcastToMerchants(msgEnvelope(chatMessage));
                     } else {
-                        //先回执用户，再异步走智能客服：答得上则机器人回复，答不上再转人工
-                        asyncBotReply(chatMessage, session);
+                        asyncUserReply(chatMessage, session, forceHuman);
                     }
                     return;
                 }
@@ -199,52 +208,96 @@ public class ChatWebSocketServer {
     }
 
     /**
-     * 智能客服异步应答：答得上则机器人直接回复用户（不打扰商家），
-     * 答不上则把用户消息转给在线人工客服。
+     * 用户消息异步处理：优先走「帮我下单」对话状态机；状态机未接管时，
+     * 人工模式直接转人工，智能模式走 RAG 问答，答不上再转人工。
      */
-    private void asyncBotReply(ChatMessage userMsg, Session userSession) {
+    private void asyncUserReply(ChatMessage userMsg, Session userSession, boolean forceHuman) {
         BOT_EXECUTOR.submit(() -> {
-            String answer = null;
+            //1. 对话下单状态机（点菜/地址确认/提交）
             try {
-                if (botService != null) {
-                    answer = botService.askBot(userMsg.getContent());
+                if (chatOrderService != null) {
+                    ChatOrderService.Result result = chatOrderService.handle(userMsg.getUserId(), userMsg.getContent());
+                    if (result != null && result.isHandled()) {
+                        //机器人已接管：用户消息置已读，不给客服端产生未读红点
+                        chatMessageMapper.markReadById(userMsg.getId());
+                        for (ChatOrderService.Reply reply : result.getReplies()) {
+                            ChatMessage out;
+                            if (reply.getType() == MSG_ORDER) {
+                                String snapshot = buildOrderSnapshot(reply.getOrderId(), userMsg.getUserId());
+                                if (snapshot == null) {
+                                    continue;
+                                }
+                                out = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_ORDER, snapshot, reply.getOrderId());
+                            } else {
+                                out = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, reply.getText(), null);
+                            }
+                            out.setIsRead(1);
+                            chatMessageMapper.insert(out);
+                            sendJson(userSession, msgEnvelope(out));
+                        }
+                        return;
+                    }
                 }
             } catch (Exception e) {
-                log.error("智能客服调用失败", e);
+                log.error("对话下单状态机处理失败", e);
             }
-            if (answer != null && !answer.isEmpty()) {
-                try {
-                    //机器人已答复：用户消息置已读，避免商家端产生未读红点
-                    chatMessageMapper.markReadById(userMsg.getId());
-                    ChatMessage botMsg = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, answer, null);
-                    botMsg.setIsRead(1);
-                    chatMessageMapper.insert(botMsg);
-                    sendJson(userSession, msgEnvelope(botMsg));
-                } catch (Exception e) {
-                    log.error("保存机器人回复失败", e);
-                }
-            } else {
-                //答不了：转人工，并告知用户已转接，避免用户干等
-                boolean merchantOnline = !MERCHANT_SESSIONS.isEmpty();
-                String tipText = merchantOnline
-                        ? "这个问题我还答不上来，已为你转接人工客服，请稍候～"
-                        : "这个问题我还答不上来，人工客服当前不在线，请留言，客服上线后会尽快回复你。";
-                try {
-                    ChatMessage tip = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, tipText, null);
-                    tip.setIsRead(1);
-                    chatMessageMapper.insert(tip);
-                    sendJson(userSession, msgEnvelope(tip));
-                } catch (Exception e) {
-                    log.error("发送转人工提示失败", e);
-                }
-                //通知前端把客服模式切到人工，后续消息不再走机器人
-                Map<String, Object> sw = new HashMap<>();
-                sw.put("type", "modeSwitch");
-                sw.put("mode", "human");
-                sendJson(userSession, sw);
+
+            //2. 显式人工模式：直接广播给在线客服
+            if (forceHuman) {
                 broadcastToMerchants(msgEnvelope(userMsg));
+                return;
             }
+
+            //3. 默认：RAG 智能问答，答不上再转人工
+            replyViaRag(userMsg, userSession);
         });
+    }
+
+    /**
+     * 智能客服应答（调用方已在异步线程中执行）：答得上则机器人直接回复用户（不打扰商家），
+     * 答不上则把用户消息转给在线人工客服。
+     */
+    private void replyViaRag(ChatMessage userMsg, Session userSession) {
+        String answer = null;
+        try {
+            if (botService != null) {
+                answer = botService.askBot(userMsg.getContent());
+            }
+        } catch (Exception e) {
+            log.error("智能客服调用失败", e);
+        }
+        if (answer != null && !answer.isEmpty()) {
+            try {
+                //机器人已答复：用户消息置已读，避免商家端产生未读红点
+                chatMessageMapper.markReadById(userMsg.getId());
+                ChatMessage botMsg = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, answer, null);
+                botMsg.setIsRead(1);
+                chatMessageMapper.insert(botMsg);
+                sendJson(userSession, msgEnvelope(botMsg));
+            } catch (Exception e) {
+                log.error("保存机器人回复失败", e);
+            }
+        } else {
+            //答不了：转人工，并告知用户已转接，避免用户干等
+            boolean merchantOnline = !MERCHANT_SESSIONS.isEmpty();
+            String tipText = merchantOnline
+                    ? "这个问题我还答不上来，已为你转接人工客服，请稍候～"
+                    : "这个问题我还答不上来，人工客服当前不在线，请留言，客服上线后会尽快回复你。";
+            try {
+                ChatMessage tip = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, tipText, null);
+                tip.setIsRead(1);
+                chatMessageMapper.insert(tip);
+                sendJson(userSession, msgEnvelope(tip));
+            } catch (Exception e) {
+                log.error("发送转人工提示失败", e);
+            }
+            //通知前端把客服模式切到人工，后续消息不再走机器人
+            Map<String, Object> sw = new HashMap<>();
+            sw.put("type", "modeSwitch");
+            sw.put("mode", "human");
+            sendJson(userSession, sw);
+            broadcastToMerchants(msgEnvelope(userMsg));
+        }
     }
 
     @OnClose
