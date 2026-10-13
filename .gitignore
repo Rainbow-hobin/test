@@ -13,7 +13,7 @@ target/
 
 # 智能客服 Python 运行环境与密钥
 智能客服/.venv/
-智能客服/__pycache__/
+**/__pycache__/
 智能客服/.env
 智能客服/.chroma/
 

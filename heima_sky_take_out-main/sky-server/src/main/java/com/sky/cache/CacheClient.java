@@ -193,6 +193,46 @@ public class CacheClient {
         });
     }
 
+    /**
+     * 清掉所有"业务缓存"键——只清读缓存（dish/setmeal/report/shop），
+     * 保留业务数据键（cart、order:seq、order:expire、login:lock、chat 等）。
+     * 启动时调用可确保旧实例留下的脏缓存不被新实例命中。
+     */
+    private static final String[] BUSINESS_CACHE_PATTERNS = {
+            "dish_*",           // 用户端菜品列表（categoryId 维度）
+            "setmealCache:*",   // 用户端套餐列表
+            "reportCache:*",    // 报表缓存（turnover/user/order/top10）
+            "SHOP_STATUS"       // 营业状态缓存（无 TTL，必须显式清）
+    };
+
+    public void clearAllBusinessCaches() {
+        int total = 0;
+        for (String pattern : BUSINESS_CACHE_PATTERNS) {
+            try {
+                Set<String> keys = redisTemplate.execute((RedisCallback<Set<String>>) connection -> {
+                    Set<String> result = new HashSet<>();
+                    ScanOptions options = ScanOptions.scanOptions().match(pattern).count(100).build();
+                    try (Cursor<byte[]> cursor = connection.scan(options)) {
+                        while (cursor.hasNext()) {
+                            result.add(new String(cursor.next(), StandardCharsets.UTF_8));
+                        }
+                    }
+                    return result;
+                });
+                if (keys != null && !keys.isEmpty()) {
+                    redisTemplate.delete(keys);
+                    total += keys.size();
+                    log.info("[启动清缓存] pattern={} 删除 {} 个 key", pattern, keys.size());
+                } else {
+                    log.info("[启动清缓存] pattern={} 无匹配 key", pattern);
+                }
+            } catch (Exception e) {
+                log.warn("[启动清缓存] pattern={} 清理失败（不影响启动）：{}", pattern, e.getMessage());
+            }
+        }
+        log.info("[启动清缓存] 完成，共清理 {} 个业务缓存 key", total);
+    }
+
     private boolean tryLock(String lockKey, String owner) {
         if (circuitOpen()) {
             // 熔断打开：不加锁直接放行查库，不等待 Redis
