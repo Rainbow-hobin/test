@@ -581,46 +581,46 @@ input:focus, textarea:focus, select:focus {
 .menu-dishes::-webkit-scrollbar { display: none; }
 .menu-dishes .dish {
   display: flex;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  padding: 6px 9px;
   background: #fff;
   border-radius: 12px;
   border: 1px solid var(--line);
   box-shadow: none;
-  margin-bottom: 8px;
+  margin-bottom: 5px;
   transition: background .15s;
 }
 .menu-dishes .dish:active { background: #fafbfc; }
 .menu-dishes .dish img {
-  width: 68px;
-  height: 68px;
+  width: 70px;
+  height: 70px;
   border-radius: 10px;
   flex-shrink: 0;
   object-fit: cover;
   background: var(--line-soft);
 }
 .dish .dish-info { flex: 1; min-width: 0; }
-.dish .dish-name { font-size: 14px; font-weight: 600; color: var(--ink-900); margin-bottom: 4px; }
+.dish .dish-name { font-size: 13px; font-weight: 600; color: var(--ink-900); margin-bottom: 2px; }
 .dish .dish-desc {
-  font-size: 12px; color: var(--ink-400);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px;
+  font-size: 11px; color: var(--ink-400);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 2px;
 }
-.dish .dish-sales { font-size: 11px; color: var(--ink-300); margin-bottom: 6px; }
+.dish .dish-sales { font-size: 10px; color: var(--ink-300); margin-bottom: 3px; }
 .dish .dish-bottom { display: flex; align-items: center; justify-content: space-between; }
 .dish .dish-price {
   color: var(--brand-600);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .dish .dish-price::first-letter { font-size: 12px; }
 
-.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper { display: flex; align-items: center; gap: 6px; }
 .stepper button {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1;
   display: flex;
   align-items: center;
@@ -1017,7 +1017,7 @@ input:focus, textarea:focus, select:focus {
 }
 .order-card .oc-goods { padding: 10px 14px; }
 .order-card .oc-goods .oc-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; }
-.order-card .oc-goods .oc-row img { width: 42px; height: 42px; border-radius: 8px; background: var(--line-soft); }
+.order-card .oc-goods .oc-row img { width: 54px; height: 54px; border-radius: 10px; background: var(--line-soft); }
 .order-card .oc-goods .oc-row .oc-name { flex: 1; color: var(--ink-700); }
 .order-card .oc-goods .oc-row .oc-num { color: var(--ink-400); }
 .order-card .oc-foot {
@@ -1331,6 +1331,7 @@ input:focus, textarea:focus, select:focus {
 /* 聊天页 — 中性暖灰底，让品牌橙始终主导 */
 .chat-page {
   height: 100%; display: flex; flex-direction: column;
+  position: relative;
   background:
     radial-gradient(360px 200px at 110% -10%, rgba(47, 111, 237, .02), transparent 60%),
     linear-gradient(180deg, #f7f8fa 0%, #f2f4f7 100%);
@@ -1402,6 +1403,18 @@ input:focus, textarea:focus, select:focus {
 }
 .chat-tip { text-align: center; color: var(--ink-300); font-size: 12px; margin-top: 24px; }
 
+/* 人工/智能切换等系统提示：居中灰条 */
+.sys-tip {
+  width: fit-content;
+  margin: 6px auto 14px;
+  background: var(--line-soft);
+  color: var(--ink-400);
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  animation: pageIn .28s var(--ease) backwards;
+}
+
 .msg-row { display: flex; margin-bottom: 14px; }
 .msg-row.mine { justify-content: flex-end; }
 .msg-row.other { justify-content: flex-start; }
@@ -1422,6 +1435,7 @@ input:focus, textarea:focus, select:focus {
   padding: 10px 13px; border-radius: 14px;
   font-size: 14px; line-height: 1.55;
   word-break: break-word; white-space: pre-wrap;
+  -webkit-user-select: text; user-select: text;
 }
 .other .bubble {
   background: #fff; color: var(--ink-700);
@@ -1488,6 +1502,29 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 10px 9px; font-size: 12px; color: var(--ink-400);
 }
 .coc-foot b { color: var(--brand-600); font-size: 15px; font-variant-numeric: tabular-nums; }
+
+/* 聊天中的动作按钮（如"去下单"） */
+.chat-action-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--grad-brand);
+  color: #fff;
+  padding: 9px 20px;
+  border-radius: var(--r-pill);
+  font-size: 14px; font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-brand-sm);
+  transition: transform .12s var(--ease), filter .18s;
+}
+.chat-action-btn:active { transform: scale(.96); filter: brightness(.95); }
+.chat-action-arrow { font-size: 18px; line-height: 1; opacity: .8; }
+/* 已使用：置灰不可点 */
+.chat-action-btn.used {
+  background: var(--ink-300);
+  box-shadow: none;
+  cursor: default;
+  transform: none; filter: none;
+  opacity: .75;
+}
 
 .chat-input-bar {
   display: flex; gap: 8px; align-items: center;
@@ -1595,5 +1632,86 @@ input:focus, textarea:focus, select:focus {
 .coc-head { display: flex; align-items: center; gap: 5px; }
 .coc-head .ic { width: 13px; height: 13px; }
 
+/* 聊天框选浮条：复制 / 引用 */
+.chat-select-bar {
+  position: absolute; z-index: 70;
+  display: flex; gap: 1px;
+  background: #2b2d33; color: #fff;
+  border-radius: 8px; padding: 2px;
+  box-shadow: 0 6px 18px rgba(23, 24, 28, .25);
+  font-size: 12px; user-select: none;
+}
+.chat-select-bar.above { transform: translateY(0); }
+.chat-select-bar.above::after {
+  content: ""; position: absolute; bottom: -5px; left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: #2b2d33; border-bottom: 0;
+}
+.chat-select-bar.below::before {
+  content: ""; position: absolute; top: -5px; left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent; border-bottom-color: #2b2d33; border-top: 0;
+}
+.chat-select-bar button {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #fff; padding: 5px 10px; background: none; border-radius: 6px;
+  font-size: 12px; line-height: 1;
+}
+.chat-select-bar button .ic { width: 13px; height: 13px; }
+.chat-select-bar button:active { background: rgba(255, 255, 255, .16); }
+
 /* 无昵称时头像内的兜底用户图标 */
 .my-avatar .ic, .profile-avatar .ic { width: 32px; height: 32px; color: rgba(255, 255, 255, .9); }
+
+/* ============ 订单详情页 ============ */
+.order-card { cursor: pointer; }
+
+.od-status {
+  margin: 14px 16px 0;
+  padding: 18px 16px;
+  border-radius: 16px;
+  color: #fff;
+  box-shadow: var(--shadow-xs);
+}
+.od-status h3 { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+.od-status p { margin-top: 5px; font-size: 12px; opacity: .92; }
+.od-s1 { background: var(--grad-brand); box-shadow: var(--shadow-brand-sm); }
+.od-s2 { background: linear-gradient(135deg, #4f8bff, #2f6fed); }
+.od-s3 { background: linear-gradient(135deg, #34b26b, #16a34a); }
+.od-s4 { background: linear-gradient(135deg, #7b61ff, #5a3ff0); }
+.od-s5 { background: linear-gradient(135deg, #5e6673, #3c4250); }
+.od-s6 { background: linear-gradient(135deg, #9aa2af, #6d7686); }
+
+.od-fee { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: var(--ink-500); }
+.od-fee.total { margin-top: 6px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--ink-900); font-weight: 600; font-size: 14px; }
+.od-fee .bb-price { font-size: 20px; }
+.od-fee .bb-price small { font-size: 12px; }
+
+.od-info { display: flex; gap: 12px; padding: 4px 0; font-size: 13px; line-height: 1.5; }
+.od-info .k { color: var(--ink-400); flex: none; width: 60px; }
+.od-info .v { color: var(--ink-700); word-break: break-all; }
+.od-info .copy { color: var(--brand-600); font-size: 12px; margin-left: 6px; cursor: pointer; }
+.od-info .copy:active { opacity: .7; }
+
+/* 详情页卡片内复用列表商品行（父级不是 .order-card 时补齐约束） */
+.card .oc-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; }
+.card .oc-row img { width: 54px; height: 54px; border-radius: 10px; object-fit: cover; background: var(--line-soft); flex: none; }
+.card .oc-row .oc-name { flex: 1; color: var(--ink-700); }
+.card .oc-row .oc-num { color: var(--ink-400); }
+
+/* 详情页底部栏：单按钮靠右、按钮加胶囊感 */
+.bottom-bar.od-single { justify-content: flex-end; }
+.bottom-bar .btn-plain { padding: 10px 24px; border-radius: var(--r-pill); }
+
+/* ============ 全局细边框：卡片与弹层轮廓（轻描边，柔和不抢眼） ============ */
+.card,
+.order-card,
+.pay-methods .pm-item,
+.confirm-box,
+.cart-pop,
+.spec-pop,
+.addr-sheet,
+.order-picker,
+.chat-order-card {
+  border: 1px solid var(--line);
+}

@@ -59,7 +59,9 @@
     pencil: '<path d="M12 20h9"/><path d="M16.5 3.6a2.1 2.1 0 0 1 2.9 2.9L7 19l-4 1 1-4z"/>',
     trash: '<path d="M3.5 6h17"/><path d="M8.5 6V4.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1V6"/><path d="M18.5 6l-.8 13.3a2 2 0 0 1-2 1.7H8.3a2 2 0 0 1-2-1.7L5.5 6"/><path d="M10 10.5v6"/><path d="M14 10.5v6"/>',
     camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
-    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/>'
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    quote: '<path d="M7 7H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v3a3 3 0 0 1-3 3"/><path d="M19 7h-3a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h3v3a3 3 0 0 1-3 3"/>'
   };
   Object.keys(Ico).forEach(function (k) { Ico[k] = svgIcon(Ico[k], 1.8); });
 
@@ -167,6 +169,7 @@
     register: pageRegister,
     menu: pageMenu,
     order: pageOrder,
+    orderDetail: pageOrderDetail,
     pay: pagePay,
     success: pageSuccess,
     address: pageAddress,
@@ -208,7 +211,37 @@
     }
   }
 
-  window.App = { go, state };
+  window.App = { go, state, chatOrderTap, chatActionTap };
+
+  //聊天订单卡片点击：进订单详情（详情页内可去支付）
+  function chatOrderTap(orderId, status) {
+    if (!orderId) return;
+    go("orderDetail", { orderId: orderId });
+  }
+
+  //聊天动作按钮（如"去下单"）：一次性使用，点击后置灰并按消息 id 持久化，
+  //刷新/重进聊天页后仍保持已用状态
+  function chatActionUsedList() {
+    try { return JSON.parse(localStorage.getItem("sky_chat_action_used") || "[]"); } catch (e) { return []; }
+  }
+  function chatActionIsUsed(id) {
+    return !!id && chatActionUsedList().indexOf(String(id)) >= 0;
+  }
+  function chatActionMarkUsed(id) {
+    if (!id) return;
+    const list = chatActionUsedList().filter(x => x !== String(id));
+    list.push(String(id));
+    while (list.length > 100) list.shift();
+    try { localStorage.setItem("sky_chat_action_used", JSON.stringify(list)); } catch (e) {}
+  }
+  function chatActionTap(el, id, action) {
+    if (!el || el.classList.contains("used")) return;
+    chatActionMarkUsed(id);
+    el.classList.add("used");
+    const arrow = el.querySelector(".chat-action-arrow");
+    if (arrow) arrow.textContent = "✓";
+    go(action || "menu");
+  }
 
   // ==================== 登录 / 注册 ====================
   function authLayout(brand) {
@@ -757,7 +790,7 @@
       try {
         const res = await Api.orderSubmit(payload);
         state.currentOrder = res;
-        go("pay", { orderId: res.id });
+        go("orderDetail", { orderId: res.id });
       } catch (e) {
         Util.toast(e.message);
       }
@@ -773,6 +806,11 @@
       try { order = await Api.orderDetail(orderId); } catch (e) { /* 忽略 */ }
     }
     if (!order) { Util.toast("订单不存在"); go("history"); return; }
+    if (order.status && order.status !== 1) {
+      Util.toast("该订单" + Util.orderStatusText(order.status) + "，无需支付");
+      go("history");
+      return;
+    }
 
     render(navbar("收银台", { back: true }) + '<div class="pay-page">'
       + '<div class="pay-box"><div class="pb-time" id="pay-time">支付剩余时间 15:00</div>'
@@ -826,6 +864,111 @@
     document.getElementById("su-menu").addEventListener("click", () => go("menu"));
   }
 
+  // ==================== 订单详情 ====================
+  const OD_STATUS = {
+    1: { t: "待付款", d: "请在 15 分钟内完成支付，超时订单将自动取消" },
+    2: { t: "待接单", d: "订单已提交，等待商家接单" },
+    3: { t: "已接单", d: "商家已接单，正在为你备餐" },
+    4: { t: "派送中", d: "订单配送中，请保持电话畅通" },
+    5: { t: "已完成", d: "订单已完成，感谢惠顾" },
+    6: { t: "已取消", d: "订单已取消" },
+    7: { t: "已退款", d: "退款将原路退回支付账户" }
+  };
+
+  async function pageOrderDetail() {
+    if (!guard()) return;
+    const orderId = state.params.orderId;
+    if (!orderId) { go("history"); return; }
+    render(navbar("订单详情", { back: true })
+      + '<div id="od-root" class="page-pad" style="padding-bottom:86px;"></div>'
+      + '<div id="od-bar" class="bottom-bar hidden"></div>', { title: "订单详情" });
+    const root = document.getElementById("od-root");
+    root.innerHTML = '<div class="empty-tip">加载中…</div>';
+    let o;
+    try {
+      o = await Api.orderDetail(orderId);
+    } catch (e) {
+      root.innerHTML = emptyTip("alert", e.message, '<button class="btn-plain" onclick="history.back()">返回</button>');
+      return;
+    }
+    if (!o) { Util.toast("订单不存在"); go("history"); return; }
+
+    const st = o.status;
+    const meta = OD_STATUS[st] || { t: Util.orderStatusText(st), d: "" };
+    const goods = o.orderDetailList || [];
+    const subtotal = goods.reduce((s, g) => s + (g.amount || 0) * (g.number || 0), 0);
+    const diff = Math.round(((o.amount || 0) - subtotal) * 100) / 100;
+    const deliveryFee = diff > 0.009 ? diff : 0;
+
+    root.innerHTML =
+      '<div class="od-status od-s' + (st || 1) + '"><h3>' + Util.esc(meta.t) + "</h3><p>" + Util.esc(meta.d) + "</p></div>"
+      + (o.consignee
+        ? '<div class="card"><div class="card-title">收货地址</div><div class="addr-item"><div class="ai-radio on">' + Ico.pin + '</div><div class="ai-main">'
+          + '<div class="ai-name">' + Util.esc(o.consignee || "") + "<span>" + Util.esc(o.phone || "") + "</span></div>"
+          + '<div class="ai-detail">' + Util.esc(o.address || "") + "</div></div></div></div>"
+        : "")
+      + '<div class="card"><div class="card-title">商品清单</div>'
+      + (goods.length ? goods.map(g =>
+          '<div class="oc-row"><img src="' + Util.img(g.image) + '"><span class="oc-name">' + Util.esc(g.name)
+          + (g.dishFlavor ? '<small style="color:#bbb;">（' + Util.esc(g.dishFlavor) + "）</small>" : "") + "</span>"
+          + '<span class="oc-num">x' + g.number + "</span></div>"
+        ).join("") : '<div class="oc-row">' + Util.esc(o.orderDishes || "订单明细") + "</div>")
+      + "</div>"
+      + '<div class="card"><div class="card-title">费用明细</div>'
+      + '<div class="od-fee"><span>商品小计</span><span>￥' + Util.money(subtotal) + "</span></div>"
+      + '<div class="od-fee"><span>配送费</span><span>￥' + Util.money(deliveryFee) + "</span></div>"
+      + '<div class="od-fee total"><span>实付</span><span class="bb-price"><small>￥</small>' + Util.money(o.amount) + "</span></div>"
+      + "</div>"
+      + '<div class="card"><div class="card-title">订单信息</div>'
+      + '<div class="od-info"><span class="k">订单号</span><span class="v">' + Util.esc(o.number || "")
+      + '<span class="copy" id="od-copy"> 复制</span></span></div>'
+      + (o.orderTime ? '<div class="od-info"><span class="k">下单时间</span><span class="v">' + Util.esc(Util.fmtTime(o.orderTime)) + "</span></div>" : "")
+      + (o.payMethod ? '<div class="od-info"><span class="k">支付方式</span><span class="v">模拟支付</span></div>' : "")
+      + (o.remark ? '<div class="od-info"><span class="k">备注</span><span class="v">' + Util.esc(o.remark) + "</span></div>" : "")
+      + "</div>";
+
+    document.getElementById("od-copy").addEventListener("click", () => {
+      navigator.clipboard.writeText(o.number || "").then(() => Util.toast("订单号已复制"), () => Util.toast("复制失败"));
+    });
+
+    // 底部操作栏（按状态）
+    const bar = document.getElementById("od-bar");
+    let actions = "";
+    if (st === 1) actions = '<button class="btn-plain" data-act="cancel">取消订单</button><button class="btn-primary" data-act="pay">去支付</button>';
+    else if (st === 2) actions = '<button class="btn-plain" data-act="cancel">取消订单</button><button class="btn-plain" data-act="remind">催单</button>';
+    else if (st === 3 || st === 4) actions = '<button class="btn-plain" data-act="remind">催单</button>';
+    else if (st === 5 || st === 6) actions = '<button class="btn-primary" data-act="repetition">再来一单</button>';
+    if (!actions) return;
+    bar.innerHTML = actions;
+    bar.classList.remove("hidden");
+    if (st === 3 || st === 4 || st === 5 || st === 6) bar.classList.add("od-single");
+    bar.addEventListener("click", async e => {
+      const btn = e.target.closest("[data-act]");
+      if (!btn) return;
+      const act = btn.dataset.act;
+      try {
+        if (act === "pay") {
+          state.currentOrder = o;
+          go("pay", { orderId: o.id });
+        } else if (act === "cancel") {
+          if (!(await Util.confirm("确定取消该订单吗？"))) return;
+          await Api.orderCancel(o.id);
+          Util.toast("订单已取消");
+          pageOrderDetail();
+        } else if (act === "remind") {
+          await Api.orderReminder(o.id);
+          Util.toast("已提醒商家");
+        } else if (act === "repetition") {
+          await Api.orderRepetition(o.id);
+          Util.toast("已加入购物车");
+          go("menu");
+        }
+      } catch (err) {
+        Util.toast(err.message);
+      }
+    });
+  }
+
   // ==================== 历史订单 ====================
   async function pageHistory() {
     if (!guard()) return;
@@ -857,7 +1000,7 @@
 
   function orderCardHtml(o) {
     const items = o.orderDetailList || [];
-    return '<div class="order-card oc-s' + o.status + '">'
+    return '<div class="order-card oc-s' + o.status + '" onclick="App.go(\'orderDetail\',{orderId:' + o.id + '})">'
       + '<div class="oc-head"><span>' + Util.esc(o.number || "") + "</span><span class=\"oc-status\">" + Util.orderStatusText(o.status) + "</span></div>"
       + '<div class="oc-goods">' + (items.length ? items.map(it =>
         '<div class="oc-row"><img src="' + Util.img(it.image) + '"><span class="oc-name">' + Util.esc(it.name)
@@ -892,6 +1035,7 @@
       el.addEventListener("click", async e => {
         const btn = e.target.closest("[data-act]");
         if (!btn) return;
+        e.stopPropagation(); //按钮点击不触发卡片跳详情
         const id = Number(el.dataset.id);
         const number = el.dataset.number;
         const act = btn.dataset.act;
@@ -1048,8 +1192,8 @@
       try { env = JSON.parse(ev.data); } catch (e) { return; }
       if (env.type === "msg" && env.message) {
         const m = env.message;
-        if (m.senderType === 2 || m.senderType === 3) {
-          //商家/机器人发来的消息
+        if (m.senderType === 2 || m.senderType === 3 || m.senderType === 4) {
+          //商家/机器人/系统提示消息
           if (state.route === "chat") {
             appendBubble(m);
             scheduleMarkRead();
@@ -1065,6 +1209,7 @@
         //后端转人工时要求前端切到人工模式
         localStorage.setItem("chatMode", env.mode === "human" ? "human" : "bot");
         syncChatModeUI();
+        Util.toast(env.mode === "human" ? "已转人工客服" : "已切换为智能客服");
       } else if (env.type === "ack" && state.route === "chat") {
         resolveAckBubble(env.clientMsgId, env.message);
       } else if (env.type === "error") {
@@ -1176,6 +1321,10 @@
       + '<button id="chat-send" class="btn-primary">发送</button></div>'
       + '<div id="chat-mask" class="mask-layer hidden"></div>'
       + '<div id="order-picker" class="order-picker hidden"></div>'
+      + '<div id="chat-select-bar" class="chat-select-bar hidden" role="toolbar">'
+      + '<button type="button" data-act="copy">' + (Ico.copy || "⧉") + "复制</button>"
+      + '<button type="button" data-act="quote">' + (Ico.quote || "❝") + "引用</button>"
+      + "</div>"
       + "</div>", { title: "商家客服" });
 
     const msgs = document.getElementById("chat-msgs");
@@ -1235,6 +1384,7 @@
 
     document.getElementById("chat-pick").addEventListener("click", openOrderPicker);
     document.getElementById("chat-mask").addEventListener("click", closeOrderPicker);
+    setupChatSelectionToolbar();
 
     if (params.orderId) {
       const banner = document.getElementById("chat-banner");
@@ -1253,6 +1403,10 @@
   }
 
   function bubbleHtml(m) {
+    //系统提示（人工/智能切换）：居中灰条，无气泡无头像
+    if (m.senderType === 4) {
+      return '<div class="sys-tip">' + Util.esc(m.content || "") + "</div>";
+    }
     const mine = m.senderType === 1;
     const isBot = m.senderType === 3;
     const cmid = m.clientMsgId ? ' data-cmid="' + Util.esc(m.clientMsgId) + '"' : "";
@@ -1261,10 +1415,19 @@
       let snap = {};
       try { snap = JSON.parse(m.content || "{}"); } catch (e) {}
       body = (isBot ? '<div class="bot-tag">智能客服</div>' : "")
-        + '<div class="chat-order-card' + (isBot ? " bot-order" : "") + '" onclick="App.go(\'order\',{orderId:' + (snap.orderId || 0) + '})">'
+        + '<div class="chat-order-card' + (isBot ? " bot-order" : "") + '" onclick="App.chatOrderTap(' + (snap.orderId || 0) + "," + (snap.status || 0) + ')">'
         + '<div class="coc-head">' + Ico.receipt + "订单卡片" + (isBot ? "·代下单" : "") + (m.sending ? "<small>（发送中）</small>" : "") + "</div>"
         + '<div class="coc-no">' + Util.esc(snap.number || "") + "</div>"
         + '<div class="coc-foot"><span>' + Util.orderStatusText(snap.status) + "</span><b>￥" + Util.money(snap.amount) + "</b></div></div>";
+    } else if (m.msgType === 3) {
+      let act = {};
+      try { act = JSON.parse(m.content || "{}"); } catch (e) {}
+      const used = chatActionIsUsed(m.id);
+      body = (isBot ? '<div class="bot-tag">智能客服</div>' : "")
+        + '<div class="chat-action-btn' + (used ? " used" : "") + '"'
+        + (used ? "" : ' onclick="App.chatActionTap(this, \'' + (m.id || "") + '\', \'' + Util.esc(act.action || "") + '\')"')
+        + '><span>' + Util.esc(act.text || "去操作") + '</span>'
+        + '<span class="chat-action-arrow">' + (used ? "✓" : "›") + "</span></div>";
     } else {
       body = (isBot ? '<div class="bot-tag">智能客服</div>' : "")
         + '<div class="bubble' + (m.sending ? " sending" : "") + (isBot ? " bot" : "") + '">' + Util.esc(m.content || "") + "</div>";
@@ -1342,6 +1505,176 @@
   function closeOrderPicker() {
     document.getElementById("chat-mask").classList.add("hidden");
     document.getElementById("order-picker").classList.add("hidden");
+  }
+
+  // 聊天消息框选浮条：复制 / 引用（文档级监听只绑一次，每次调用刷新元素引用）
+  let chatSelBound = false;
+  let chatSelLastText = "";
+  let chatSelTimer = null;
+
+  function chatSelInBubble(node) {
+    let n = node;
+    while (n && n !== document) {
+      if (n.classList && n.classList.contains("bubble")) return n;
+      n = n.parentNode;
+    }
+    return null;
+  }
+
+  function chatSelHide() {
+    const bar = document.getElementById("chat-select-bar");
+    if (bar) bar.classList.add("hidden");
+    chatSelLastText = "";
+  }
+
+  function chatSelUpdate() {
+    const bar = document.getElementById("chat-select-bar");
+    const msgs = document.getElementById("chat-msgs");
+    if (!bar || !msgs) return;
+    const sel = window.getSelection && window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) { chatSelHide(); return; }
+    const range = sel.getRangeAt(0);
+    const text = sel.toString();
+    // 起点、终点都必须落在 chat-msgs 内的 .bubble 上
+    if (!text
+        || !msgs.contains(range.startContainer) || !msgs.contains(range.endContainer)
+        || !chatSelInBubble(range.startContainer) || !chatSelInBubble(range.endContainer)) {
+      chatSelHide();
+      return;
+    }
+    if (text === chatSelLastText && !bar.classList.contains("hidden")) return;
+    chatSelLastText = text;
+
+    // 先显示再测量，避免 display:none 时尺寸为 0
+    bar.classList.remove("hidden");
+    const r = range.getBoundingClientRect();
+    const host = bar.parentElement.getBoundingClientRect();
+    const barW = bar.offsetWidth || 100;
+    const barH = bar.offsetHeight || 30;
+    // 放选区上方；放不下则翻到下方
+    let top = r.top - host.top - barH - 8;
+    const above = top > 0;
+    if (!above) { top = r.bottom - host.top + 8; }
+    let left = r.left - host.left + r.width / 2 - barW / 2;
+    // 边界保护
+    left = Math.max(4, Math.min(left, host.width - barW - 4));
+    bar.style.top = top + "px";
+    bar.style.left = left + "px";
+    bar.classList.toggle("above", above);
+    bar.classList.toggle("below", !above);
+  }
+
+  function setupChatSelectionToolbar() {
+    const bar = document.getElementById("chat-select-bar");
+    const msgs = document.getElementById("chat-msgs");
+    if (!bar || !msgs) return;
+
+    if (!chatSelBound) {
+      chatSelBound = true;
+      document.addEventListener("selectionchange", () => {
+        clearTimeout(chatSelTimer);
+        chatSelTimer = setTimeout(chatSelUpdate, 60);
+      });
+      // 点击浮条以外区域时隐藏（选区交给浏览器自然清除）；右键例外，交给 contextmenu 处理
+      document.addEventListener("mousedown", e => {
+        if (e.button === 2) return;
+        const b = document.getElementById("chat-select-bar");
+        if (!b || b.classList.contains("hidden") || b.contains(e.target)) return;
+        setTimeout(chatSelHide, 0);
+      }, true);
+    }
+
+    // 阻止点击浮条按钮时丢失选区
+    bar.addEventListener("mousedown", e => e.preventDefault());
+
+    bar.addEventListener("click", e => {
+      const btn = e.target.closest("button[data-act]");
+      if (!btn) return;
+      e.preventDefault();
+      const sel = window.getSelection();
+      const text = sel ? sel.toString() : "";
+      const act = btn.dataset.act;
+      if (!text) { chatSelHide(); return; }
+      if (act === "copy") {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            () => Util.toast("已复制"),
+            () => chatSelFallbackCopy(text)
+          );
+        } else { chatSelFallbackCopy(text); }
+      } else if (act === "quote") {
+        const input = document.getElementById("chat-input");
+        if (input) {
+          const oneLine = text.replace(/\s+/g, " ").trim().slice(0, 80);
+          const quoted = "「" + oneLine + "」 ";
+          input.value = (input.value && !input.value.endsWith(" ") ? input.value + " " : input.value || "") + quoted;
+          input.focus();
+          // 光标移到末尾
+          const len = input.value.length;
+          try { input.setSelectionRange(len, len); } catch (err) {}
+        }
+      }
+      if (sel) sel.removeAllRanges();
+      chatSelHide();
+    });
+
+    // 滚动 / 切页时位置会跑偏，统一隐藏
+    msgs.addEventListener("scroll", chatSelHide, { passive: true });
+
+    // 单击气泡 = 全选该条消息并弹出浮条（拖动框选不受影响；再点一次取消）
+    let downX = -1, downY = -1;
+    msgs.addEventListener("mousedown", e => { downX = e.clientX; downY = e.clientY; });
+    msgs.addEventListener("click", e => {
+      const bubble = e.target.closest(".bubble");
+      if (!bubble || !msgs.contains(bubble)) return;
+      // 按下后拖动过的（>4px）视为手动框选，不覆盖用户选区
+      if (downX >= 0 && (Math.abs(e.clientX - downX) > 4 || Math.abs(e.clientY - downY) > 4)) return;
+      const sel = window.getSelection();
+      if (!sel) return;
+      const cur = sel.isCollapsed ? "" : sel.toString();
+      const full = bubble.textContent || "";
+      if (cur && cur === full) {
+        // 已是全选状态：再点一次取消
+        sel.removeAllRanges();
+        chatSelHide();
+        return;
+      }
+      const range = document.createRange();
+      range.selectNodeContents(bubble);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      // selectionchange 会自动弹出浮条
+    });
+
+    // 右键气泡 = 屏蔽系统菜单并弹浮条：已有选区落在该气泡内则保留选区，否则全选整条
+    msgs.addEventListener("contextmenu", e => {
+      const bubble = e.target.closest(".bubble");
+      if (!bubble || !msgs.contains(bubble)) return;
+      e.preventDefault();
+      const sel = window.getSelection();
+      if (!sel) return;
+      const kept = !sel.isCollapsed && sel.rangeCount > 0
+        && sel.getRangeAt(0).intersectsNode
+        && sel.getRangeAt(0).intersectsNode(bubble);
+      if (!kept) {
+        const range = document.createRange();
+        range.selectNodeContents(bubble);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      chatSelLastText = "";
+      chatSelUpdate();
+    });
+  }
+
+  function chatSelFallbackCopy(t) {
+    const ta = document.createElement("textarea");
+    ta.value = t; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); Util.toast("已复制"); }
+    catch (e) { Util.toast("复制失败，请手动选择"); }
+    document.body.removeChild(ta);
   }
 
   // ==================== 我的 ====================
