@@ -104,6 +104,14 @@ public interface OrderMapper {
     Orders getByNumber(String orderNumber);
 
     /**
+     * 查询用户最近一笔未被取消的订单（对话式「再来一单」用）
+     * @param userId
+     */
+    @Select("select * from orders where user_id = #{userId} and status <> 6 " +
+            "order by order_time desc, id desc limit 1")
+    Orders getLatestByUserId(Long userId);
+
+    /**
      * 支付成功专用更新：仅当 status=1（待付款）时才更新为已支付，返回影响行数
      * @param orders
      * @return 影响行数，0 表示非待付款状态（已被并发支付/取消）

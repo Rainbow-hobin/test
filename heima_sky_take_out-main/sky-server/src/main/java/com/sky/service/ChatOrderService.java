@@ -28,6 +28,11 @@ public interface ChatOrderService {
      */
     boolean hasActiveSession(Long userId);
 
+    /**
+     * 取消进行中的下单会话（用户明确要求转人工时调用，避免人工对话中状态机突然接管）。
+     */
+    void cancelSession(Long userId);
+
     /** 处理结果 */
     class Result {
         private final boolean handled;
@@ -63,26 +68,34 @@ public interface ChatOrderService {
         }
     }
 
-    /** 单条机器人回复：文本 或 订单卡片 */
+    /** 单条机器人回复：文本 / 订单卡片 / 动作按钮 */
     class Reply {
-        /** 1 文本消息，2 订单卡片消息（与 ChatMessage.msgType 对齐） */
+        /** 1 文本消息，2 订单卡片消息，3 动作按钮（与 ChatMessage.msgType 对齐） */
         private final int type;
         private final String text;
         /** type=2 时关联的订单 id */
         private final Long orderId;
+        /** type=3 时前端跳转的路由名（如 "order"） */
+        private final String action;
 
-        private Reply(int type, String text, Long orderId) {
+        private Reply(int type, String text, Long orderId, String action) {
             this.type = type;
             this.text = text;
             this.orderId = orderId;
+            this.action = action;
         }
 
         public static Reply text(String text) {
-            return new Reply(1, text, null);
+            return new Reply(1, text, null, null);
         }
 
         public static Reply orderCard(Long orderId) {
-            return new Reply(2, null, orderId);
+            return new Reply(2, null, orderId, null);
+        }
+
+        /** 动作按钮：前端点击后跳转到指定路由 */
+        public static Reply action(String text, String action) {
+            return new Reply(3, text, null, action);
         }
 
         public int getType() {
@@ -95,6 +108,10 @@ public interface ChatOrderService {
 
         public Long getOrderId() {
             return orderId;
+        }
+
+        public String getAction() {
+            return action;
         }
     }
 }

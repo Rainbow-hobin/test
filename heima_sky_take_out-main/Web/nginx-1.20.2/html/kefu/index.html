@@ -169,6 +169,7 @@
       linear-gradient(180deg,#f2f6fc 0%,#edf1f8 100%);
   }
   .chat-tip { text-align:center; color:var(--ink-300); font-size:13px; margin-top:30px; }
+  .sys-tip { width:fit-content; margin:6px auto 14px; background:var(--line-soft); color:var(--ink-400); font-size:11px; padding:4px 12px; border-radius:999px; }
   .msg-row { display:flex; margin-bottom:16px; }
   .msg-row.me { justify-content:flex-end; }
   .msg-ava {
@@ -501,6 +502,10 @@
   }
 
   function bubbleHtml(m) {
+    //系统提示（人工/智能切换）：居中灰条
+    if (m.senderType === 4) {
+      return '<div class="sys-tip">' + esc(m.content || "") + "</div>";
+    }
     var mine = m.senderType === 2;
     var isBot = m.senderType === 3;
     var cmid = m.clientMsgId ? ' data-cmid="' + esc(m.clientMsgId) + '"' : "";
