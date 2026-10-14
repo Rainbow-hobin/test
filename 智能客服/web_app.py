@@ -75,6 +75,75 @@ def ask(req: AskRequest):
     return {"answer": answer, "evidence": evidence, "has_key": bool(config.DEEPSEEK_API_KEY)}
 
 
+# ---- LLM tool-calling 端点 ----
+from typing import Any
+from tool_chat import call_llm, SYSTEM_PROMPT
+
+
+class ChatOrderRequest(BaseModel):
+    messages: list[dict[str, Any]]
+
+
+@app.post("/api/chat_order")
+def chat_order(req: ChatOrderRequest):
+    """LLM tool-calling 入口。接收完整对话历史（OpenAI 格式），返回最终回复或 tool_calls。
+
+    返回格式：
+      - 需要调工具: {"finish": false, "assistant_message": {...}, "tool_calls": [...]}
+      - 最终回复: {"finish": true, "content": "...", "assistant_message": {...}}
+      - 失败: {"finish": false, "error": "..."}
+    """
+    if not config.DEEPSEEK_API_KEY:
+        return {"finish": False, "error": "DEEPSEEK_API_KEY 未配置"}
+
+    # 拼接 system prompt + 对话历史
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + req.messages
+
+    try:
+        resp = call_llm(messages)
+        msg = resp.choices[0].message
+
+        # 构造 OpenAI 格式的 assistant 消息（Java 原样存回 messages 数组）
+        assistant_msg = {"role": "assistant", "content": msg.content}
+        if msg.tool_calls:
+            import json as _json
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments or "{}",
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+            # 简化的 tool_calls 供 Java 执行
+            simplified = []
+            for tc in msg.tool_calls:
+                args = {}
+                try:
+                    args = _json.loads(tc.function.arguments) if tc.function.arguments else {}
+                except Exception:
+                    args = {}
+                simplified.append(
+                    {"id": tc.id, "name": tc.function.name, "arguments": args}
+                )
+            return {
+                "finish": False,
+                "assistant_message": assistant_msg,
+                "tool_calls": simplified,
+            }
+        else:
+            return {
+                "finish": True,
+                "content": msg.content or "",
+                "assistant_message": assistant_msg,
+            }
+    except Exception as e:
+        return {"finish": False, "error": f"{type(e).__name__}: {e}"}
+
+
 # ================= 前端页面 =================
 
 PAGE_TEMPLATE = """<!DOCTYPE html>
