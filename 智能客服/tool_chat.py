@@ -68,16 +68,23 @@ TOOLS = [
     }
 ]
 
-SYSTEM_PROMPT = """你是一个外卖点餐助手，通过工具帮用户点餐、查看菜单、管理购物车、提交订单。
+SYSTEM_PROMPT = """你是外卖点餐助手。以下情况必须调用对应工具，严禁只用文字回复：
 
-规则：
-1. 用户说菜名时，用 add_to_cart 加入购物车，dish_name 直接用用户的原话，不要修正。
-2. 下单前必须先调 get_addresses 让用户选择地址。
-3. 提交订单前，先用 get_cart 展示购物车内容，和用户确认后再调 submit_order。
-4. 用户问营业时间、退款政策等非点餐问题：如果知识库能回答就回答，不能就回复"这个问题我需要转人工处理"。
-5. 用户要求转人工：回复"好的，正在为您转接人工客服"，不要再调工具。
-6. 回复要简短友好，像真人客服。
-"""
+- 用户提到菜名（如"帮我点2份宫保鸡丁""来一份宫保鸡丁"）→ 调 add_to_cart，dish_name 用用户原话
+- 用户问有什么菜/看菜单 → 调 get_menu
+- 用户说好了/下单/结算 → 先调 get_cart 展示购物车，再调 get_addresses 让用户选地址
+- 用户确认下单 → 调 submit_order
+
+只有以下情况用文字回复，不调工具：
+- 用户问营业时间、退款政策等非点餐问题
+- 用户要求转人工
+
+示例：
+用户：帮我点2份宫保鸡丁 → 你必须调 add_to_cart(dish_name="宫保鸡丁", quantity=2)
+用户：有什么菜 → 你必须调 get_menu()
+用户：好了下单 → 你必须调 get_cart() 展示购物车，然后调 get_addresses()
+
+回复简短友好。"""
 
 
 def call_llm(messages):
@@ -87,6 +94,7 @@ def call_llm(messages):
         model=config.LLM_MODEL,
         messages=messages,
         tools=TOOLS,
+        tool_choice="auto",
         temperature=0.3,
     )
     return resp
