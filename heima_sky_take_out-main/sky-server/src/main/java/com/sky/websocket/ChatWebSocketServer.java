@@ -83,6 +83,7 @@ public class ChatWebSocketServer {
     private static OrderMapper orderMapper;
     private static BotService botService;
     private static ChatOrderService chatOrderService;
+    private static com.sky.service.ChatToolService chatToolService;
     private static com.sky.mapper.EmployeeMapper employeeMapper;
 
     @Autowired
@@ -113,6 +114,11 @@ public class ChatWebSocketServer {
     @Autowired
     public void setChatOrderService(ChatOrderService chatOrderService) {
         ChatWebSocketServer.chatOrderService = chatOrderService;
+    }
+
+    @Autowired
+    public void setChatToolService(com.sky.service.ChatToolService chatToolService) {
+        ChatWebSocketServer.chatToolService = chatToolService;
     }
 
     //当前连接身份
@@ -248,42 +254,37 @@ public class ChatWebSocketServer {
                 if (chatOrderService != null) {
                     chatOrderService.cancelSession(userMsg.getUserId());
                 }
+                if (chatToolService != null) {
+                    chatToolService.clearSession(userMsg.getUserId());
+                }
                 enterHumanMode(userMsg.getUserId());
                 sendBotText(userMsg.getUserId(), humanConfirmText());
                 syncHumanMode(userMsg.getUserId());
                 broadcastToMerchants(msgEnvelope(userMsg));
                 return;
             }
-            //1. 对话下单状态机（点菜/地址确认/提交）
+            //1. LLM tool-calling 下单（优先）
+            try {
+                if (chatToolService != null) {
+                    ChatOrderService.Result result = chatToolService.handle(userMsg.getUserId(), userMsg.getContent());
+                    if (result != null && result.isHandled()) {
+                        chatMessageMapper.markReadById(userMsg.getId());
+                        sendBotReplies(userMsg.getUserId(), userSession, result.getReplies());
+                        backToBotIfNeeded(userMsg.getUserId(), forceHuman);
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                log.error("LLM tool-calling 处理失败，fallback 到关键词状态机", e);
+            }
+
+            //1.5 关键词状态机 fallback（点菜/地址确认/提交）
             try {
                 if (chatOrderService != null) {
                     ChatOrderService.Result result = chatOrderService.handle(userMsg.getUserId(), userMsg.getContent());
                     if (result != null && result.isHandled()) {
-                        //机器人已接管：用户消息置已读，不给客服端产生未读红点
                         chatMessageMapper.markReadById(userMsg.getId());
-                        for (ChatOrderService.Reply reply : result.getReplies()) {
-                            ChatMessage out;
-                            if (reply.getType() == MSG_ORDER) {
-                                String snapshot = buildOrderSnapshot(reply.getOrderId(), userMsg.getUserId());
-                                if (snapshot == null) {
-                                    continue;
-                                }
-                                out = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_ORDER, snapshot, reply.getOrderId());
-                            } else if (reply.getType() == MSG_ACTION) {
-                                //动作按钮：content 存 JSON {text, action}，前端点击后跳转
-                                Map<String, String> act = new HashMap<>();
-                                act.put("text", reply.getText());
-                                act.put("action", reply.getAction());
-                                out = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_ACTION,
-                                        JSON.writeValueAsString(act), null);
-                            } else {
-                                out = buildMessage(userMsg.getUserId(), TYPE_BOT, 0L, MSG_TEXT, reply.getText(), null);
-                            }
-                            out.setIsRead(1);
-                            chatMessageMapper.insert(out);
-                            sendJson(userSession, msgEnvelope(out));
-                        }
-                        //机器人接管了消息：若此前处于人工模式，提示已切回智能客服
+                        sendBotReplies(userMsg.getUserId(), userSession, result.getReplies());
                         backToBotIfNeeded(userMsg.getUserId(), forceHuman);
                         return;
                     }
@@ -301,6 +302,31 @@ public class ChatWebSocketServer {
             //3. 默认：RAG 智能问答，答不上再转人工
             replyViaRag(userMsg, userSession);
         });
+    }
+
+    /**
+     * 发送机器人回复列表（文本/订单卡片/动作按钮），供 tool-calling 和关键词状态机复用。
+     */
+    private void sendBotReplies(Long userId, Session userSession, java.util.List<ChatOrderService.Reply> replies) {
+        for (ChatOrderService.Reply reply : replies) {
+            ChatMessage out;
+            if (reply.getType() == MSG_ORDER) {
+                String snapshot = buildOrderSnapshot(reply.getOrderId(), userId);
+                if (snapshot == null) continue;
+                out = buildMessage(userId, TYPE_BOT, 0L, MSG_ORDER, snapshot, reply.getOrderId());
+            } else if (reply.getType() == MSG_ACTION) {
+                Map<String, String> act = new HashMap<>();
+                act.put("text", reply.getText());
+                act.put("action", reply.getAction());
+                out = buildMessage(userId, TYPE_BOT, 0L, MSG_ACTION,
+                        JSON.writeValueAsString(act), null);
+            } else {
+                out = buildMessage(userId, TYPE_BOT, 0L, MSG_TEXT, reply.getText(), null);
+            }
+            out.setIsRead(1);
+            chatMessageMapper.insert(out);
+            sendJson(userSession, msgEnvelope(out));
+        }
     }
 
     /**
